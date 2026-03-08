@@ -1,759 +1,728 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SpeedCheck — Internet Speed Test</title>
-<script src="https://exuvial-shelly-sympathetically.ngrok-free.dev/analytics.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #090d14;
-    --surface: #0f1520;
-    --surface2: #151e2e;
-    --border: rgba(99,180,255,0.1);
-    --accent: #3b82f6;
-    --accent2: #06d6a0;
-    --accent3: #f59e0b;
-    --text: #e8f0fe;
-    --muted: #5a6a85;
-    --danger: #ef4444;
-  }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+import { useState, useRef, useEffect, useCallback } from "react";
 
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'Syne', sans-serif;
-    min-height: 100vh;
-    overflow-x: hidden;
-  }
+// ── Constants ──────────────────────────────────────────────────────────────
+const MAX_DL = 300;
+const MAX_UL = 150;
+const MAX_PING = 200;
 
-  /* Background grid + glow */
-  body::before {
-    content: '';
-    position: fixed; inset: 0; z-index: 0;
-    background-image:
-      linear-gradient(rgba(59,130,246,0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(59,130,246,0.03) 1px, transparent 1px);
-    background-size: 40px 40px;
-    pointer-events: none;
-  }
-  body::after {
-    content: '';
-    position: fixed;
-    top: -200px; left: 50%; transform: translateX(-50%);
-    width: 900px; height: 500px;
-    background: radial-gradient(ellipse, rgba(59,130,246,0.07) 0%, transparent 70%);
-    pointer-events: none; z-index: 0;
-  }
+// CDN files for download test — varied sizes, no auth, CORS-open
+const DL_TARGETS = [
+  { url: "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" },
+  { url: "https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js" },
+  { url: "https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js" },
+  { url: "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" },
+];
 
-  .page { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+// Public echo endpoints that accept POST + return body (CORS open)
+const UL_ENDPOINTS = [
+  "https://httpbin.org/post",
+  "https://postman-echo.com/post",
+];
 
-  /* HEADER */
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 20px 48px;
-    border-bottom: 1px solid var(--border);
-    backdrop-filter: blur(12px);
-  }
-  .logo {
-    display: flex; align-items: center; gap: 10px;
-    font-size: 1.25rem; font-weight: 800; letter-spacing: -0.02em;
-  }
-  .logo-icon {
-    width: 32px; height: 32px;
-    background: linear-gradient(135deg, var(--accent), var(--accent2));
-    border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .logo-icon svg { width: 18px; height: 18px; }
-  .logo span { color: var(--accent); }
-  .header-badge {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.7rem; color: var(--accent2);
-    border: 1px solid rgba(6,214,160,0.3);
-    background: rgba(6,214,160,0.06);
-    padding: 4px 10px; border-radius: 100px;
-    letter-spacing: 0.08em;
-  }
+function getGrade(dl) {
+  if (dl >= 100) return "A";
+  if (dl >= 50) return "B";
+  if (dl >= 15) return "C";
+  return "D";
+}
 
-  /* MAIN */
-  main {
-    flex: 1;
-    display: flex; flex-direction: column; align-items: center;
-    padding: 60px 24px 40px;
-  }
+function gradeColor(g) {
+  return { A: "#06d6a0", B: "#3b82f6", C: "#f59e0b", D: "#ef4444" }[g];
+}
 
-  .hero-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.72rem; letter-spacing: 0.18em; text-transform: uppercase;
-    color: var(--accent); margin-bottom: 16px;
-    display: flex; align-items: center; gap: 8px;
+// ── Ping ──────────────────────────────────────────────────────────────────
+async function measurePing(onSample) {
+  const REPS = 8;
+  const samples = [];
+  for (let i = 0; i < REPS; i++) {
+    const url = `https://www.cloudflare.com/favicon.ico?_=${Date.now()}${i}`;
+    const t0 = performance.now();
+    try {
+      await fetch(url, { mode: "no-cors", cache: "no-store" });
+    } catch (_) {}
+    const ms = performance.now() - t0;
+    samples.push(ms);
+    onSample(Math.round(ms));
+    await sleep(80);
   }
-  .hero-label::before, .hero-label::after {
-    content: ''; flex: 1 1 30px; height: 1px; background: var(--accent); opacity: 0.3;
-  }
-  h1 {
-    font-size: clamp(2rem, 5vw, 3.2rem);
-    font-weight: 800; letter-spacing: -0.03em;
-    text-align: center; line-height: 1.1;
-    margin-bottom: 12px;
-  }
-  h1 span { color: var(--accent); }
-  .subtitle {
-    color: var(--muted); font-size: 1rem;
-    text-align: center; margin-bottom: 56px;
-    font-family: 'DM Mono', monospace;
-  }
+  // Drop highest + lowest, average rest
+  samples.sort((a, b) => a - b);
+  const trimmed = samples.slice(1, -1);
+  return Math.round(trimmed.reduce((s, v) => s + v, 0) / trimmed.length);
+}
 
-  /* GAUGE */
-  .gauge-wrapper {
-    position: relative;
-    width: 280px; height: 280px;
-    margin-bottom: 36px;
+// ── Download ──────────────────────────────────────────────────────────────
+async function measureDownload(onProgress) {
+  const results = [];
+  let done = 0;
+  for (const { url } of DL_TARGETS) {
+    const busted = `${url}?nc=${Date.now()}`;
+    const t0 = performance.now();
+    try {
+      const r = await fetch(busted, { cache: "no-store" });
+      const buf = await r.arrayBuffer();
+      const elapsed = (performance.now() - t0) / 1000; // seconds
+      const bytes = buf.byteLength;
+      const mbps = (bytes * 8) / elapsed / 1_000_000;
+      results.push(mbps);
+    } catch (_) {
+      // skip failed fetches
+    }
+    done++;
+    onProgress(done / DL_TARGETS.length);
   }
-  .gauge-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-  .gauge-bg { fill: none; stroke: var(--surface2); stroke-width: 12; }
-  .gauge-track {
-    fill: none; stroke-width: 12;
-    stroke: url(#gaugeGrad);
-    stroke-linecap: round;
-    stroke-dasharray: 659;
-    stroke-dashoffset: 659;
-    transition: stroke-dashoffset 0.4s cubic-bezier(0.4,0,0.2,1);
-  }
-  .gauge-center {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-  }
-  .speed-val {
-    font-size: 3.4rem; font-weight: 800; letter-spacing: -0.04em;
-    line-height: 1; color: var(--text);
-    transition: color 0.3s;
-  }
-  .speed-unit {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.75rem; color: var(--muted); letter-spacing: 0.1em;
-    margin-top: 4px;
-  }
-  .speed-label {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.65rem; color: var(--accent);
-    letter-spacing: 0.15em; text-transform: uppercase;
-    margin-top: 8px;
-  }
+  if (results.length === 0) throw new Error("Download test failed");
+  // Use top-half average to reduce noise
+  results.sort((a, b) => b - a);
+  const top = results.slice(0, Math.ceil(results.length / 2));
+  return Math.round((top.reduce((s, v) => s + v, 0) / top.length) * 10) / 10;
+}
 
-  /* PULSE RING */
-  .gauge-wrapper .pulse {
-    position: absolute; inset: -16px;
-    border-radius: 50%;
-    border: 2px solid rgba(59,130,246,0.15);
-    animation: none;
+// ── Upload ────────────────────────────────────────────────────────────────
+async function measureUpload(onProgress) {
+  const SIZES = [200_000, 500_000]; // bytes
+  const results = [];
+  for (let i = 0; i < SIZES.length; i++) {
+    const size = SIZES[i];
+    const blob = new Blob([new Uint8Array(size).fill(0x41)]);
+    const endpoint = UL_ENDPOINTS[i % UL_ENDPOINTS.length];
+    const t0 = performance.now();
+    try {
+      const r = await fetch(endpoint, {
+        method: "POST",
+        body: blob,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      if (!r.ok) throw new Error("non-2xx");
+      const elapsed = (performance.now() - t0) / 1000;
+      // Subtract estimated server processing (~50ms)
+      const netElapsed = Math.max(elapsed - 0.05, 0.05);
+      const mbps = (size * 8) / netElapsed / 1_000_000;
+      results.push(mbps);
+    } catch (_) {
+      // Upload blocked (CORS / network) — estimate as ~40% of download
+      results.push(null);
+    }
+    onProgress((i + 1) / SIZES.length);
   }
-  .gauge-wrapper.testing .pulse {
-    animation: pulse 1.8s ease-out infinite;
-  }
-  @keyframes pulse {
-    0% { transform: scale(0.9); opacity: 0.6; }
-    100% { transform: scale(1.08); opacity: 0; }
-  }
+  const valid = results.filter(Boolean);
+  if (valid.length === 0) return null; // will be shown as N/A
+  return Math.round((valid.reduce((s, v) => s + v, 0) / valid.length) * 10) / 10;
+}
 
-  /* STATUS */
-  .status-row {
-    display: flex; align-items: center; gap: 8px;
-    font-family: 'DM Mono', monospace; font-size: 0.78rem;
-    color: var(--muted); margin-bottom: 36px;
-    min-height: 22px;
+// ── Network Info ───────────────────────────────────────────────────────────
+async function fetchNetInfo() {
+  try {
+    const r = await fetch("https://ipapi.co/json/");
+    const d = await r.json();
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    return {
+      ip: d.ip || "—",
+      isp: d.org ? d.org.replace(/^AS\d+\s+/, "").slice(0, 24) : "—",
+      loc: d.city ? `${d.city}, ${d.country_code}` : "—",
+      conn: conn ? conn.effectiveType || conn.type || "Unknown" : "Unknown",
+    };
+  } catch (_) {
+    return { ip: "Unavailable", isp: "—", loc: "—", conn: "—" };
   }
-  .status-dot {
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--muted);
-    flex-shrink: 0;
-  }
-  .status-dot.active { background: var(--accent2); animation: blink 1s step-end infinite; }
-  .status-dot.done { background: var(--accent2); animation: none; }
-  .status-dot.error { background: var(--danger); }
-  @keyframes blink { 50% { opacity: 0.2; } }
+}
 
-  /* START BUTTON */
-  .btn-start {
-    cursor: pointer; border: none; outline: none;
-    background: linear-gradient(135deg, var(--accent) 0%, #2563eb 100%);
-    color: #fff; font-family: 'Syne', sans-serif;
-    font-size: 1rem; font-weight: 700; letter-spacing: 0.04em;
-    padding: 16px 52px; border-radius: 100px;
-    position: relative; overflow: hidden;
-    transition: transform 0.15s, box-shadow 0.15s;
-    box-shadow: 0 0 0 0 rgba(59,130,246,0.5);
-    margin-bottom: 52px;
-  }
-  .btn-start::before {
-    content: ''; position: absolute; inset: 0;
-    background: rgba(255,255,255,0.08);
-    opacity: 0; transition: opacity 0.2s;
-  }
-  .btn-start:hover { transform: translateY(-2px); box-shadow: 0 8px 32px rgba(59,130,246,0.35); }
-  .btn-start:hover::before { opacity: 1; }
-  .btn-start:active { transform: translateY(0); }
-  .btn-start:disabled {
-    background: var(--surface2);
-    color: var(--muted); cursor: not-allowed;
-    box-shadow: none; transform: none;
-  }
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
-  /* METRICS GRID */
-  .metrics {
-    display: grid; grid-template-columns: repeat(3, 1fr);
-    gap: 16px; width: 100%; max-width: 680px;
-    margin-bottom: 24px;
-  }
-  .metric-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 16px; padding: 20px 22px;
-    position: relative; overflow: hidden;
-    transition: border-color 0.3s;
-  }
-  .metric-card.highlight { border-color: rgba(59,130,246,0.35); }
-  .metric-card::before {
-    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-    background: linear-gradient(90deg, transparent, var(--accent), transparent);
-    opacity: 0; transition: opacity 0.4s;
-  }
-  .metric-card.highlight::before { opacity: 1; }
-  .metric-icon {
-    width: 28px; height: 28px; border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    margin-bottom: 12px; font-size: 13px;
-  }
-  .metric-icon.down { background: rgba(59,130,246,0.12); }
-  .metric-icon.up { background: rgba(6,214,160,0.12); }
-  .metric-icon.ping { background: rgba(245,158,11,0.12); }
-  .metric-title {
-    font-family: 'DM Mono', monospace;
-    font-size: 0.65rem; text-transform: uppercase;
-    letter-spacing: 0.12em; color: var(--muted);
-    margin-bottom: 6px;
-  }
-  .metric-value {
-    font-size: 1.6rem; font-weight: 800; letter-spacing: -0.03em;
-    line-height: 1;
-  }
-  .metric-value .unit {
-    font-size: 0.75rem; font-weight: 500;
-    color: var(--muted); margin-left: 2px;
-    font-family: 'DM Mono', monospace;
-  }
-  .metric-value.has-val { color: var(--text); }
-  .metric-value:not(.has-val) { color: var(--muted); }
-  .metric-bar {
-    height: 3px; background: var(--surface2);
-    border-radius: 100px; margin-top: 12px; overflow: hidden;
-  }
-  .metric-bar-fill {
-    height: 100%; border-radius: 100px; width: 0%;
-    transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
-  }
-  .metric-bar-fill.down { background: var(--accent); }
-  .metric-bar-fill.up { background: var(--accent2); }
-  .metric-bar-fill.ping { background: var(--accent3); }
+// ── Gauge SVG ──────────────────────────────────────────────────────────────
+function Gauge({ pct, value, label, phase }) {
+  const R = 90;
+  const CIRC = 2 * Math.PI * R; // 565.5
+  const ARC = CIRC * 0.75; // 424
+  const offset = ARC - ARC * Math.min(pct, 1);
 
-  /* INFO ROW */
-  .info-row {
-    display: flex; gap: 10px; flex-wrap: wrap;
-    justify-content: center; margin-bottom: 52px;
-    max-width: 680px; width: 100%;
-  }
-  .info-chip {
-    display: flex; align-items: center; gap: 6px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px; padding: 8px 14px;
-    font-family: 'DM Mono', monospace;
-    font-size: 0.7rem; color: var(--muted);
-    transition: border-color 0.3s, color 0.3s;
-  }
-  .info-chip.loaded { color: var(--text); border-color: rgba(99,180,255,0.2); }
-  .info-chip-label { color: var(--muted); }
-  .info-chip-val { color: inherit; font-weight: 500; }
+  const color =
+    phase === "ping"
+      ? "#f59e0b"
+      : phase === "upload"
+      ? "#06d6a0"
+      : "#3b82f6";
 
-  /* HISTORY */
-  .history-section {
-    width: 100%; max-width: 680px; margin-bottom: 40px;
-  }
-  .section-header {
-    display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 14px;
-  }
-  .section-title {
-    font-size: 0.75rem; font-weight: 700; letter-spacing: 0.12em;
-    text-transform: uppercase; color: var(--muted);
-    font-family: 'DM Mono', monospace;
-  }
-  .clear-btn {
-    font-family: 'DM Mono', monospace; font-size: 0.65rem;
-    color: var(--muted); background: none; border: none;
-    cursor: pointer; letter-spacing: 0.08em;
-    transition: color 0.2s;
-  }
-  .clear-btn:hover { color: var(--danger); }
-  .history-list { display: flex; flex-direction: column; gap: 8px; }
-  .history-item {
-    display: grid; grid-template-columns: 1fr auto auto auto;
-    align-items: center; gap: 16px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 12px; padding: 12px 18px;
-    font-family: 'DM Mono', monospace; font-size: 0.72rem;
-    animation: slideIn 0.3s ease;
-  }
-  @keyframes slideIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-  .history-time { color: var(--muted); }
-  .history-val { font-weight: 500; }
-  .history-val.down { color: var(--accent); }
-  .history-val.up { color: var(--accent2); }
-  .history-val.ping { color: var(--accent3); }
-  .history-grade {
-    width: 22px; height: 22px; border-radius: 6px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 0.62rem; font-weight: 700;
-  }
-  .grade-A { background: rgba(6,214,160,0.15); color: var(--accent2); }
-  .grade-B { background: rgba(59,130,246,0.15); color: var(--accent); }
-  .grade-C { background: rgba(245,158,11,0.15); color: var(--accent3); }
-  .grade-D { background: rgba(239,68,68,0.15); color: var(--danger); }
-
-  /* FOOTER */
-  footer {
-    border-top: 1px solid var(--border);
-    padding: 20px 48px;
-    display: flex; align-items: center; justify-content: space-between; flex-wrap: gap;
-    font-family: 'DM Mono', monospace; font-size: 0.68rem; color: var(--muted);
-  }
-  .footer-links { display: flex; gap: 20px; }
-  .footer-links a { color: var(--muted); text-decoration: none; transition: color 0.2s; }
-  .footer-links a:hover { color: var(--accent); }
-
-  /* PROGRESS BAR at top */
-  .progress-bar {
-    position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 100;
-    background: transparent;
-  }
-  .progress-fill {
-    height: 100%; width: 0%;
-    background: linear-gradient(90deg, var(--accent), var(--accent2));
-    transition: width 0.3s ease;
-  }
-
-  /* Responsiveness */
-  @media (max-width: 600px) {
-    header { padding: 16px 20px; }
-    .metrics { grid-template-columns: 1fr 1fr; }
-    .metrics .metric-card:last-child { grid-column: span 2; }
-    footer { flex-direction: column; gap: 12px; text-align: center; }
-  }
-</style>
-</head>
-<body>
-<div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-<div class="page">
-
-  <header>
-    <div class="logo">
-      <div class="logo-icon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-        </svg>
-      </div>
-      Speed<span>Check</span>
-    </div>
-    <div class="header-badge">● LIVE TEST</div>
-  </header>
-
-  <main>
-    <div class="hero-label">Network Diagnostics</div>
-    <h1>Test Your <span>Internet Speed</span></h1>
-    <p class="subtitle">Accurate · Reliable · Instant Results</p>
-
-    <!-- GAUGE -->
-    <div class="gauge-wrapper" id="gaugeWrapper">
-      <div class="pulse"></div>
-      <svg class="gauge-svg" viewBox="0 0 220 220">
+  return (
+    <div className="gauge-wrap">
+      <svg viewBox="0 0 220 220" className="gauge-svg">
         <defs>
-          <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stop-color="#3b82f6"/>
-            <stop offset="100%" stop-color="#06d6a0"/>
+          <linearGradient id="gGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stopColor={color} />
+            <stop offset="100%" stopColor={phase === "upload" ? "#3b82f6" : "#06d6a0"} />
           </linearGradient>
         </defs>
-        <!-- 75% arc: stroke-dasharray = circumference of r=105: 2*PI*105 = 659.7 -->
-        <circle class="gauge-bg" cx="110" cy="110" r="105"
-          stroke-dasharray="495 164" stroke-dashoffset="0"/>
-        <circle class="gauge-track" id="gaugeTrack" cx="110" cy="110" r="105"
-          stroke-dasharray="495 659" stroke-dashoffset="495"/>
+        <circle
+          cx="110" cy="110" r={R}
+          fill="none" stroke="#151e2e" strokeWidth="14"
+          strokeDasharray={`${ARC} ${CIRC - ARC}`}
+          strokeDashoffset="0"
+          transform="rotate(135 110 110)"
+        />
+        <circle
+          cx="110" cy="110" r={R}
+          fill="none" stroke="url(#gGrad)" strokeWidth="14"
+          strokeLinecap="round"
+          strokeDasharray={`${ARC} ${CIRC - ARC}`}
+          strokeDashoffset={offset}
+          transform="rotate(135 110 110)"
+          style={{ transition: "stroke-dashoffset 0.35s cubic-bezier(.4,0,.2,1), stroke 0.4s" }}
+        />
       </svg>
-      <div class="gauge-center">
-        <div class="speed-val" id="speedVal">—</div>
-        <div class="speed-unit">Mbps</div>
-        <div class="speed-label" id="speedLabel">Ready</div>
+      <div className="gauge-center">
+        <span className="gauge-val">{value === null ? "—" : value}</span>
+        <span className="gauge-unit">Mbps</span>
+        <span className="gauge-label" style={{ color }}>{label}</span>
       </div>
     </div>
+  );
+}
 
-    <!-- STATUS -->
-    <div class="status-row">
-      <div class="status-dot" id="statusDot"></div>
-      <span id="statusText">Click Start Test to begin</span>
+// ── MiniBar ────────────────────────────────────────────────────────────────
+function MiniBar({ pct, color }) {
+  return (
+    <div style={{
+      height: 3, background: "#151e2e", borderRadius: 99, marginTop: 10, overflow: "hidden"
+    }}>
+      <div style={{
+        height: "100%", width: `${Math.min(pct * 100, 100)}%`,
+        background: color, borderRadius: 99,
+        transition: "width 0.8s cubic-bezier(.4,0,.2,1)"
+      }} />
     </div>
-
-    <!-- BUTTON -->
-    <button class="btn-start" id="startBtn" onclick="startTest()">▶ Start Test</button>
-
-    <!-- METRICS -->
-    <div class="metrics">
-      <div class="metric-card" id="cardDown">
-        <div class="metric-icon down">⬇</div>
-        <div class="metric-title">Download</div>
-        <div class="metric-value" id="metricDown">—<span class="unit">Mbps</span></div>
-        <div class="metric-bar"><div class="metric-bar-fill down" id="barDown"></div></div>
-      </div>
-      <div class="metric-card" id="cardUp">
-        <div class="metric-icon up">⬆</div>
-        <div class="metric-title">Upload</div>
-        <div class="metric-value" id="metricUp">—<span class="unit">Mbps</span></div>
-        <div class="metric-bar"><div class="metric-bar-fill up" id="barUp"></div></div>
-      </div>
-      <div class="metric-card" id="cardPing">
-        <div class="metric-icon ping">◎</div>
-        <div class="metric-title">Ping</div>
-        <div class="metric-value" id="metricPing">—<span class="unit">ms</span></div>
-        <div class="metric-bar"><div class="metric-bar-fill ping" id="barPing"></div></div>
-      </div>
-    </div>
-
-    <!-- INFO CHIPS -->
-    <div class="info-row" id="infoRow">
-      <div class="info-chip" id="chipIp">
-        <span class="info-chip-label">IP:</span>
-        <span class="info-chip-val" id="valIp">—</span>
-      </div>
-      <div class="info-chip" id="chipIsp">
-        <span class="info-chip-label">ISP:</span>
-        <span class="info-chip-val" id="valIsp">—</span>
-      </div>
-      <div class="info-chip" id="chipLoc">
-        <span class="info-chip-label">Location:</span>
-        <span class="info-chip-val" id="valLoc">—</span>
-      </div>
-      <div class="info-chip" id="chipConn">
-        <span class="info-chip-label">Connection:</span>
-        <span class="info-chip-val" id="valConn">—</span>
-      </div>
-    </div>
-
-    <!-- HISTORY -->
-    <div class="history-section" id="historySection" style="display:none;">
-      <div class="section-header">
-        <div class="section-title">Test History</div>
-        <button class="clear-btn" onclick="clearHistory()">Clear</button>
-      </div>
-      <div class="history-list" id="historyList"></div>
-    </div>
-  </main>
-
-  <footer>
-    <div>© 2025 SpeedCheck — All rights reserved</div>
-    <div class="footer-links">
-      <a href="#">Privacy</a>
-      <a href="#">About</a>
-      <a href="#">Help</a>
-    </div>
-  </footer>
-</div>
-
-<script>
-// ─── State ───────────────────────────────────────────────────────────────────
-let testRunning = false;
-let history = JSON.parse(localStorage.getItem('sc_history') || '[]');
-
-// ─── Gauge helpers ───────────────────────────────────────────────────────────
-const MAX_SPEED = 300; // Mbps scale
-function setGauge(pct) {
-  const track = document.getElementById('gaugeTrack');
-  const total = 495; // 75% of circumference
-  const offset = total - (total * Math.min(pct, 1));
-  track.style.strokeDashoffset = offset;
-}
-function setSpeedDisplay(val, label) {
-  const el = document.getElementById('speedVal');
-  el.textContent = val === null ? '—' : val.toFixed(1);
-  document.getElementById('speedLabel').textContent = label;
-}
-function animateGaugeTo(targetMbps, duration = 1500) {
-  return new Promise(resolve => {
-    const startTime = performance.now();
-    const startPct = 0;
-    const endPct = targetMbps / MAX_SPEED;
-    function step(now) {
-      const t = Math.min((now - startTime) / duration, 1);
-      const ease = t < 0.5 ? 2*t*t : -1+(4-2*t)*t;
-      const current = startPct + (endPct - startPct) * ease;
-      setGauge(current);
-      const displayVal = targetMbps * ease;
-      document.getElementById('speedVal').textContent = displayVal.toFixed(1);
-      if (t < 1) requestAnimationFrame(step);
-      else { document.getElementById('speedVal').textContent = targetMbps.toFixed(1); resolve(); }
-    }
-    requestAnimationFrame(step);
-  });
+  );
 }
 
-// ─── Status helpers ───────────────────────────────────────────────────────────
-function setStatus(msg, state = 'idle') {
-  document.getElementById('statusText').textContent = msg;
-  const dot = document.getElementById('statusDot');
-  dot.className = 'status-dot';
-  if (state === 'active') dot.classList.add('active');
-  if (state === 'done') dot.classList.add('done');
-  if (state === 'error') dot.classList.add('error');
-}
-function setProgress(pct) {
-  document.getElementById('progressFill').style.width = pct + '%';
-}
+// ── Main App ───────────────────────────────────────────────────────────────
+export default function SpeedCheck() {
+  const [phase, setPhase] = useState("idle"); // idle | ping | download | upload | done | error
+  const [gaugePct, setGaugePct] = useState(0);
+  const [gaugeVal, setGaugeVal] = useState(null);
+  const [status, setStatus] = useState("Click Start Test to begin");
+  const [progress, setProgress] = useState(0);
+  const [netInfo, setNetInfo] = useState(null);
+  const [results, setResults] = useState({ dl: null, ul: null, ping: null });
+  const [history, setHistory] = useState([]);
+  const running = useRef(false);
 
-// ─── Metric helpers ───────────────────────────────────────────────────────────
-function setMetric(id, barId, cardId, val, unit, max) {
-  const el = document.getElementById(id);
-  el.innerHTML = val + '<span class="unit">' + unit + '</span>';
-  el.classList.add('has-val');
-  const barPct = Math.min((val / max) * 100, 100);
-  document.getElementById(barId).style.width = barPct + '%';
-  document.getElementById(cardId).classList.add('highlight');
-}
-
-// ─── IP / ISP Info ────────────────────────────────────────────────────────────
-async function fetchNetworkInfo() {
-  try {
-    const r = await fetch('https://ipapi.co/json/');
-    const d = await r.json();
-    document.getElementById('valIp').textContent = d.ip || '—';
-    document.getElementById('valIsp').textContent = d.org ? d.org.replace(/^AS\d+\s+/,'').slice(0,22) : '—';
-    document.getElementById('valLoc').textContent = d.city ? `${d.city}, ${d.country_code}` : '—';
-    // Connection type
-    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    document.getElementById('valConn').textContent = conn ? (conn.effectiveType || conn.type || 'Unknown') : 'Unknown';
-    ['chipIp','chipIsp','chipLoc','chipConn'].forEach(id => {
-      document.getElementById(id).classList.add('loaded');
-    });
-  } catch(e) {
-    document.getElementById('valIp').textContent = 'Unavailable';
-  }
-}
-
-// ─── Ping Test ────────────────────────────────────────────────────────────────
-async function measurePing() {
-  const samples = [];
-  const targets = [
-    'https://www.google.com/favicon.ico',
-    'https://www.cloudflare.com/favicon.ico',
-  ];
-  for (let i = 0; i < 6; i++) {
-    const url = targets[i % targets.length] + '?_=' + Date.now() + i;
-    const t0 = performance.now();
-    try {
-      await fetch(url, { mode: 'no-cors', cache: 'no-store' });
-      samples.push(performance.now() - t0);
-    } catch(e) { samples.push(50); }
-  }
-  samples.sort((a,b) => a - b);
-  const trimmed = samples.slice(1, samples.length - 1);
-  return Math.round(trimmed.reduce((s,v) => s + v, 0) / trimmed.length);
-}
-
-// ─── Speed Test (Download) ────────────────────────────────────────────────────
-async function measureDownload() {
-  // Uses multiple CDN resources to measure real download speed
-  const payloads = [
-    { url: 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js', size: 600000 },
-    { url: 'https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js', size: 72000 },
-    { url: 'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js', size: 280000 },
-    { url: 'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.min.js', size: 220000 },
-  ];
-  let totalBytes = 0, totalMs = 0;
-  const samples = [];
-  for (const p of payloads) {
-    const t0 = performance.now();
-    try {
-      const r = await fetch(p.url + '?nc=' + Date.now(), { cache: 'no-store' });
-      const buf = await r.arrayBuffer();
-      const elapsed = performance.now() - t0;
-      const bytes = buf.byteLength || p.size;
-      const mbps = (bytes * 8) / (elapsed / 1000) / 1_000_000;
-      samples.push(mbps);
-      totalBytes += bytes;
-      totalMs += elapsed;
-    } catch(e) { samples.push(10); }
-  }
-  // Remove outliers, average
-  samples.sort((a,b) => a - b);
-  const top = samples.slice(Math.floor(samples.length / 2));
-  const avg = top.reduce((s,v) => s + v, 0) / top.length;
-  return Math.round(avg * 10) / 10;
-}
-
-// ─── Upload Test ──────────────────────────────────────────────────────────────
-async function measureUpload() {
-  // Simulate upload by timing how long it takes to send data
-  const sizes = [500000, 1000000];
-  const samples = [];
-  for (const size of sizes) {
-    const data = new Uint8Array(size).fill(65);
-    const blob = new Blob([data]);
-    const t0 = performance.now();
-    try {
-      await fetch('https://httpbin.org/post', {
-        method: 'POST',
-        body: blob,
-        headers: { 'Content-Type': 'application/octet-stream' }
-      });
-      const elapsed = performance.now() - t0;
-      const mbps = (size * 8) / (elapsed / 1000) / 1_000_000;
-      samples.push(mbps);
-    } catch(e) {
-      // Fallback: estimate from download
-      samples.push(null);
-    }
-  }
-  const valid = samples.filter(v => v !== null);
-  if (valid.length === 0) return null;
-  return Math.round((valid.reduce((s,v) => s + v, 0) / valid.length) * 10) / 10;
-}
-
-// ─── Grade ────────────────────────────────────────────────────────────────────
-function getGrade(dl) {
-  if (dl >= 100) return 'A';
-  if (dl >= 50) return 'B';
-  if (dl >= 15) return 'C';
-  return 'D';
-}
-
-// ─── History ──────────────────────────────────────────────────────────────────
-function addHistory(dl, ul, ping) {
-  const now = new Date();
-  const time = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  const entry = { time, dl, ul, ping, grade: getGrade(dl) };
-  history.unshift(entry);
-  if (history.length > 8) history.pop();
-  localStorage.setItem('sc_history', JSON.stringify(history));
-  renderHistory();
-}
-function renderHistory() {
-  const list = document.getElementById('historyList');
-  const section = document.getElementById('historySection');
-  if (history.length === 0) { section.style.display = 'none'; return; }
-  section.style.display = 'block';
-  list.innerHTML = history.map(h => `
-    <div class="history-item">
-      <span class="history-time">${h.time}</span>
-      <span class="history-val down">↓ ${h.dl} Mbps</span>
-      <span class="history-val up">↑ ${h.ul !== null ? h.ul + ' Mbps' : '—'}</span>
-      <span class="history-val ping">${h.ping} ms</span>
-      <span class="history-grade grade-${h.grade}">${h.grade}</span>
-    </div>`).join('');
-}
-function clearHistory() {
-  history = [];
-  localStorage.removeItem('sc_history');
-  renderHistory();
-}
-
-// ─── MAIN TEST ────────────────────────────────────────────────────────────────
-async function startTest() {
-  if (testRunning) return;
-  testRunning = true;
-  const btn = document.getElementById('startBtn');
-  btn.disabled = true;
-  btn.textContent = '⏳ Testing...';
-  document.getElementById('gaugeWrapper').classList.add('testing');
-
-  // Reset UI
-  setGauge(0);
-  setSpeedDisplay(null, 'Initializing');
-  setStatus('Starting test...', 'active');
-  setProgress(5);
-  ['metricDown','metricUp','metricPing'].forEach(id => {
-    const el = document.getElementById(id);
-    el.innerHTML = '—<span class="unit">' + (id === 'metricPing' ? 'ms' : 'Mbps') + '</span>';
-    el.classList.remove('has-val');
-  });
-  ['cardDown','cardUp','cardPing'].forEach(id => document.getElementById(id).classList.remove('highlight'));
-  ['barDown','barUp','barPing'].forEach(id => document.getElementById(id).style.width = '0%');
-
-  try {
-    // Phase 1: Fetch network info
-    setStatus('Fetching network info...', 'active');
-    setProgress(10);
-    fetchNetworkInfo(); // non-blocking
-
-    // Phase 2: Ping
-    setStatus('Measuring latency...', 'active');
-    document.getElementById('speedLabel').textContent = 'Ping';
-    setProgress(20);
-    const ping = await measurePing();
-    setMetric('metricPing', 'barPing', 'cardPing', ping, 'ms', 200);
-    setProgress(35);
-
-    // Phase 3: Download
-    setStatus('Testing download speed...', 'active');
-    document.getElementById('speedLabel').textContent = 'Download';
-    setProgress(40);
-    const dl = await measureDownload();
-    await animateGaugeTo(dl, 1200);
-    setMetric('metricDown', 'barDown', 'cardDown', dl, 'Mbps', 200);
-    setProgress(70);
-
-    // Phase 4: Upload
-    setStatus('Testing upload speed...', 'active');
-    setGauge(0);
-    document.getElementById('speedLabel').textContent = 'Upload';
-    document.getElementById('speedVal').textContent = '…';
-    setProgress(75);
-    const ul = await measureUpload();
-    if (ul !== null) {
-      await animateGaugeTo(ul, 900);
-      setMetric('metricUp', 'barUp', 'cardUp', ul, 'Mbps', 200);
+  // Pulse animation state
+  const [pulse, setPulse] = useState(false);
+  useEffect(() => {
+    if (phase !== "idle" && phase !== "done" && phase !== "error") {
+      setPulse(true);
     } else {
-      document.getElementById('metricUp').innerHTML = 'N/A<span class="unit"></span>';
-      document.getElementById('metricUp').classList.add('has-val');
+      setPulse(false);
     }
-    setProgress(95);
+  }, [phase]);
 
-    // Done
-    await animateGaugeTo(dl, 600);
-    document.getElementById('speedLabel').textContent = 'Complete';
-    setStatus('Test complete!', 'done');
-    setProgress(100);
-    addHistory(dl, ul, ping);
+  const addHistory = useCallback((dl, ul, ping) => {
+    const entry = {
+      id: Date.now(),
+      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      dl, ul, ping,
+      grade: getGrade(dl),
+    };
+    setHistory((h) => [entry, ...h].slice(0, 8));
+  }, []);
 
-    setTimeout(() => setProgress(0), 2000);
-  } catch(err) {
-    setStatus('Error during test. Try again.', 'error');
+  const runTest = useCallback(async () => {
+    if (running.current) return;
+    running.current = true;
+
+    // Reset
+    setGaugePct(0);
+    setGaugeVal(null);
+    setResults({ dl: null, ul: null, ping: null });
     setProgress(0);
-    document.getElementById('speedLabel').textContent = 'Error';
-  }
 
-  document.getElementById('gaugeWrapper').classList.remove('testing');
-  btn.disabled = false;
-  btn.textContent = '↺ Test Again';
-  testRunning = false;
+    try {
+      // Network info (non-blocking)
+      setPhase("ping");
+      setStatus("Fetching network info…");
+      fetchNetInfo().then(setNetInfo);
+
+      // Ping
+      setStatus("Measuring latency…");
+      setProgress(8);
+      const pingMs = await measurePing((sample) => {
+        setGaugeVal(sample);
+        setGaugePct(1 - sample / MAX_PING);
+        setProgress((p) => Math.min(p + 3, 30));
+      });
+      setResults((r) => ({ ...r, ping: pingMs }));
+      setProgress(35);
+
+      // Download
+      setPhase("download");
+      setStatus("Testing download speed…");
+      setGaugePct(0);
+      setGaugeVal(0);
+      const dl = await measureDownload((frac) => {
+        setProgress(35 + frac * 30);
+      });
+      setGaugePct(dl / MAX_DL);
+      setGaugeVal(dl.toFixed(1));
+      setResults((r) => ({ ...r, dl }));
+      setProgress(70);
+      await sleep(400);
+
+      // Upload
+      setPhase("upload");
+      setStatus("Testing upload speed…");
+      setGaugePct(0);
+      setGaugeVal(0);
+      const ul = await measureUpload((frac) => {
+        setProgress(70 + frac * 25);
+      });
+      if (ul !== null) {
+        setGaugePct(ul / MAX_UL);
+        setGaugeVal(ul.toFixed(1));
+      } else {
+        setGaugeVal("N/A");
+      }
+      setResults((r) => ({ ...r, ul }));
+      setProgress(100);
+
+      // Done — show download on gauge
+      await sleep(500);
+      setPhase("done");
+      setGaugePct(dl / MAX_DL);
+      setGaugeVal(dl.toFixed(1));
+      setStatus("Test complete!");
+      addHistory(dl, ul, pingMs);
+    } catch (err) {
+      setPhase("error");
+      setStatus("Test failed — check your connection and try again.");
+    }
+
+    running.current = false;
+  }, [addHistory]);
+
+  const { dl, ul, ping } = results;
+
+  return (
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fira+Code:wght@300;400;500&display=swap');
+        :root {
+          --bg: #07090f;
+          --surf: #0d1117;
+          --surf2: #141b24;
+          --border: rgba(56,139,253,0.12);
+          --blue: #3b82f6;
+          --green: #06d6a0;
+          --amber: #f59e0b;
+          --red: #ef4444;
+          --text: #e2eaf6;
+          --muted: #4d6080;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: var(--bg); color: var(--text); font-family: 'Space Grotesk', sans-serif; }
+
+        .app { min-height: 100vh; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+
+        /* Grid bg */
+        .bg-grid {
+          position: fixed; inset: 0; pointer-events: none; z-index: 0;
+          background-image:
+            linear-gradient(rgba(59,130,246,.025) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(59,130,246,.025) 1px, transparent 1px);
+          background-size: 44px 44px;
+        }
+        .bg-glow {
+          position: fixed; top: -300px; left: 50%; transform: translateX(-50%);
+          width: 1000px; height: 600px; pointer-events: none; z-index: 0;
+          background: radial-gradient(ellipse, rgba(59,130,246,.06) 0%, transparent 70%);
+        }
+
+        /* Progress bar */
+        .top-bar {
+          position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 99;
+        }
+        .top-bar-fill {
+          height: 100%;
+          background: linear-gradient(90deg, var(--blue), var(--green));
+          transition: width 0.35s ease;
+        }
+
+        /* Header */
+        header {
+          position: relative; z-index: 1;
+          display: flex; align-items: center; justify-content: space-between;
+          padding: 18px 44px;
+          border-bottom: 1px solid var(--border);
+          backdrop-filter: blur(10px);
+        }
+        .logo {
+          display: flex; align-items: center; gap: 10px;
+          font-size: 1.2rem; font-weight: 700; letter-spacing: -.02em;
+        }
+        .logo-icon {
+          width: 30px; height: 30px; border-radius: 7px;
+          background: linear-gradient(135deg, var(--blue), var(--green));
+          display: flex; align-items: center; justify-content: center;
+          font-size: 14px;
+        }
+        .logo-accent { color: var(--blue); }
+        .live-badge {
+          font-family: 'Fira Code', monospace; font-size: .68rem;
+          color: var(--green); border: 1px solid rgba(6,214,160,.25);
+          background: rgba(6,214,160,.06); padding: 3px 10px; border-radius: 99px;
+          letter-spacing: .1em;
+        }
+
+        /* Main */
+        main {
+          position: relative; z-index: 1; flex: 1;
+          display: flex; flex-direction: column; align-items: center;
+          padding: 52px 20px 40px;
+        }
+
+        .eyebrow {
+          font-family: 'Fira Code', monospace; font-size: .68rem;
+          letter-spacing: .18em; text-transform: uppercase;
+          color: var(--blue); margin-bottom: 14px;
+          display: flex; align-items: center; gap: 10px;
+        }
+        .eyebrow::before, .eyebrow::after {
+          content: ''; flex: 1 1 28px; height: 1px;
+          background: var(--blue); opacity: .3;
+        }
+        h1 {
+          font-size: clamp(1.9rem,4.5vw,3rem); font-weight: 700;
+          letter-spacing: -.03em; text-align: center; line-height: 1.1;
+          margin-bottom: 10px;
+        }
+        h1 span { color: var(--blue); }
+        .sub {
+          font-family: 'Fira Code', monospace; font-size: .85rem;
+          color: var(--muted); text-align: center; margin-bottom: 48px;
+        }
+
+        /* Gauge */
+        .gauge-wrap {
+          position: relative; width: 240px; height: 240px; margin-bottom: 28px;
+        }
+        .gauge-svg { width: 100%; height: 100%; }
+        .gauge-center {
+          position: absolute; inset: 0;
+          display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        .gauge-val {
+          font-size: 3rem; font-weight: 700; letter-spacing: -.04em; line-height: 1;
+        }
+        .gauge-unit {
+          font-family: 'Fira Code', monospace; font-size: .7rem;
+          color: var(--muted); letter-spacing: .1em; margin-top: 3px;
+        }
+        .gauge-label {
+          font-family: 'Fira Code', monospace; font-size: .62rem;
+          letter-spacing: .15em; text-transform: uppercase; margin-top: 6px;
+          transition: color .3s;
+        }
+
+        /* Pulse ring */
+        @keyframes pulse-ring {
+          0% { transform: scale(.92); opacity: .5; }
+          100% { transform: scale(1.1); opacity: 0; }
+        }
+        .pulse-ring {
+          position: absolute; inset: -14px; border-radius: 50%;
+          border: 2px solid rgba(59,130,246,.2);
+          animation: pulse-ring 1.6s ease-out infinite;
+        }
+
+        /* Status */
+        .status-row {
+          display: flex; align-items: center; gap: 7px;
+          font-family: 'Fira Code', monospace; font-size: .73rem;
+          color: var(--muted); margin-bottom: 30px; min-height: 20px;
+        }
+        @keyframes blink { 50% { opacity: .15; } }
+        .dot {
+          width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+          background: var(--muted);
+        }
+        .dot.active { background: var(--green); animation: blink 1s step-end infinite; }
+        .dot.done { background: var(--green); }
+        .dot.error { background: var(--red); }
+
+        /* Button */
+        .btn {
+          cursor: pointer; border: none; outline: none;
+          background: linear-gradient(135deg, #3b82f6, #2563eb);
+          color: #fff; font-family: 'Space Grotesk', sans-serif;
+          font-size: .95rem; font-weight: 700; letter-spacing: .03em;
+          padding: 14px 48px; border-radius: 99px;
+          transition: transform .15s, box-shadow .15s;
+          box-shadow: 0 0 0 rgba(59,130,246,0);
+          margin-bottom: 44px;
+        }
+        .btn:hover:not(:disabled) {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 28px rgba(59,130,246,.35);
+        }
+        .btn:active:not(:disabled) { transform: translateY(0); }
+        .btn:disabled {
+          background: var(--surf2); color: var(--muted);
+          cursor: not-allowed; box-shadow: none;
+        }
+
+        /* Metric cards */
+        .metrics {
+          display: grid; grid-template-columns: repeat(3,1fr);
+          gap: 14px; width: 100%; max-width: 640px; margin-bottom: 20px;
+        }
+        .card {
+          background: var(--surf); border: 1px solid var(--border);
+          border-radius: 14px; padding: 18px 20px;
+          position: relative; overflow: hidden;
+          transition: border-color .3s;
+        }
+        .card.lit { border-color: rgba(59,130,246,.3); }
+        .card.lit::after {
+          content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+          background: linear-gradient(90deg, transparent, var(--blue), transparent);
+        }
+        .card-icon {
+          width: 26px; height: 26px; border-radius: 7px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 12px; margin-bottom: 10px;
+        }
+        .card-lbl {
+          font-family: 'Fira Code', monospace; font-size: .62rem;
+          text-transform: uppercase; letter-spacing: .1em;
+          color: var(--muted); margin-bottom: 5px;
+        }
+        .card-val {
+          font-size: 1.5rem; font-weight: 700; letter-spacing: -.03em; line-height: 1;
+          color: var(--muted);
+        }
+        .card-val.set { color: var(--text); }
+        .card-val .u {
+          font-size: .7rem; font-family: 'Fira Code', monospace;
+          font-weight: 400; color: var(--muted); margin-left: 2px;
+        }
+
+        /* Info chips */
+        .chips {
+          display: flex; flex-wrap: wrap; gap: 8px;
+          justify-content: center; max-width: 640px; width: 100%;
+          margin-bottom: 40px;
+        }
+        .chip {
+          display: flex; align-items: center; gap: 5px;
+          background: var(--surf); border: 1px solid var(--border);
+          border-radius: 7px; padding: 7px 12px;
+          font-family: 'Fira Code', monospace; font-size: .67rem;
+          color: var(--muted); transition: border-color .3s, color .3s;
+        }
+        .chip.loaded { color: var(--text); border-color: rgba(56,139,253,.22); }
+        .chip-key { color: var(--muted); }
+
+        /* History */
+        .hist-section { width: 100%; max-width: 640px; margin-bottom: 40px; }
+        .hist-hdr {
+          display: flex; align-items: center; justify-content: space-between;
+          margin-bottom: 12px;
+        }
+        .hist-title {
+          font-family: 'Fira Code', monospace; font-size: .68rem;
+          text-transform: uppercase; letter-spacing: .12em; color: var(--muted);
+        }
+        .clear-btn {
+          font-family: 'Fira Code', monospace; font-size: .63rem;
+          color: var(--muted); background: none; border: none; cursor: pointer;
+          letter-spacing: .06em; transition: color .2s;
+        }
+        .clear-btn:hover { color: var(--red); }
+        .hist-list { display: flex; flex-direction: column; gap: 7px; }
+        @keyframes slide-in {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .hist-row {
+          display: grid; grid-template-columns: 1fr auto auto auto auto;
+          align-items: center; gap: 14px;
+          background: var(--surf); border: 1px solid var(--border);
+          border-radius: 10px; padding: 10px 16px;
+          font-family: 'Fira Code', monospace; font-size: .7rem;
+          animation: slide-in .25s ease;
+        }
+        .hist-time { color: var(--muted); }
+        .hist-dl { color: var(--blue); font-weight: 500; }
+        .hist-ul { color: var(--green); font-weight: 500; }
+        .hist-ping { color: var(--amber); font-weight: 500; }
+        .hist-grade {
+          width: 22px; height: 22px; border-radius: 6px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: .6rem; font-weight: 700;
+        }
+
+        /* Footer */
+        footer {
+          position: relative; z-index: 1;
+          border-top: 1px solid var(--border);
+          padding: 18px 44px;
+          display: flex; align-items: center; justify-content: space-between;
+          font-family: 'Fira Code', monospace; font-size: .65rem; color: var(--muted);
+        }
+        .footer-links { display: flex; gap: 18px; }
+        .footer-links a { color: var(--muted); text-decoration: none; transition: color .2s; }
+        .footer-links a:hover { color: var(--blue); }
+
+        @media(max-width: 560px) {
+          header, footer { padding: 14px 18px; }
+          .metrics { grid-template-columns: 1fr 1fr; }
+          .metrics .card:last-child { grid-column: span 2; }
+          footer { flex-direction: column; gap: 10px; text-align: center; }
+        }
+      `}</style>
+
+      <div className="app">
+        <div className="bg-grid" />
+        <div className="bg-glow" />
+
+        {/* Progress bar */}
+        <div className="top-bar">
+          <div className="top-bar-fill" style={{ width: `${progress}%` }} />
+        </div>
+
+        <header>
+          <div className="logo">
+            <div className="logo-icon">⚡</div>
+            Speed<span className="logo-accent">Check</span>
+          </div>
+          <div className="live-badge">● LIVE TEST</div>
+        </header>
+
+        <main>
+          <div className="eyebrow">Network Diagnostics</div>
+          <h1>Test Your <span>Internet Speed</span></h1>
+          <p className="sub">Accurate · Reliable · Instant Results</p>
+
+          {/* Gauge */}
+          <div style={{ position: "relative" }}>
+            {pulse && <div className="pulse-ring" />}
+            <Gauge
+              pct={gaugePct}
+              value={gaugeVal}
+              label={
+                phase === "ping" ? "Ping" :
+                phase === "download" ? "Download" :
+                phase === "upload" ? "Upload" :
+                phase === "done" ? "Complete" :
+                phase === "error" ? "Error" : "Ready"
+              }
+              phase={
+                phase === "ping" ? "ping" :
+                phase === "upload" ? "upload" : "download"
+              }
+            />
+          </div>
+
+          {/* Status */}
+          <div className="status-row">
+            <div className={`dot ${phase === "done" ? "done" : phase === "error" ? "error" : phase !== "idle" ? "active" : ""}`} />
+            <span>{status}</span>
+          </div>
+
+          {/* Button */}
+          <button
+            className="btn"
+            disabled={phase !== "idle" && phase !== "done" && phase !== "error"}
+            onClick={runTest}
+          >
+            {phase === "idle" ? "▶ Start Test" :
+             phase === "done" || phase === "error" ? "↺ Test Again" :
+             "⏳ Testing…"}
+          </button>
+
+          {/* Metrics */}
+          <div className="metrics">
+            <div className={`card ${dl !== null ? "lit" : ""}`}>
+              <div className="card-icon" style={{ background: "rgba(59,130,246,.12)" }}>⬇</div>
+              <div className="card-lbl">Download</div>
+              <div className={`card-val ${dl !== null ? "set" : ""}`}>
+                {dl !== null ? dl.toFixed(1) : "—"}<span className="u">Mbps</span>
+              </div>
+              <MiniBar pct={dl !== null ? dl / MAX_DL : 0} color="var(--blue)" />
+            </div>
+            <div className={`card ${ul !== null ? "lit" : ""}`}>
+              <div className="card-icon" style={{ background: "rgba(6,214,160,.12)" }}>⬆</div>
+              <div className="card-lbl">Upload</div>
+              <div className={`card-val ${ul !== null ? "set" : ""}`}>
+                {ul === null ? "—" : ul === undefined ? "N/A" : ul.toFixed(1)}
+                <span className="u">Mbps</span>
+              </div>
+              <MiniBar pct={ul ? ul / MAX_UL : 0} color="var(--green)" />
+            </div>
+            <div className={`card ${ping !== null ? "lit" : ""}`}>
+              <div className="card-icon" style={{ background: "rgba(245,158,11,.12)" }}>◎</div>
+              <div className="card-lbl">Ping</div>
+              <div className={`card-val ${ping !== null ? "set" : ""}`}>
+                {ping !== null ? ping : "—"}<span className="u">ms</span>
+              </div>
+              <MiniBar pct={ping !== null ? 1 - ping / MAX_PING : 0} color="var(--amber)" />
+            </div>
+          </div>
+
+          {/* Info chips */}
+          <div className="chips">
+            {[
+              { key: "IP", val: netInfo?.ip },
+              { key: "ISP", val: netInfo?.isp },
+              { key: "Location", val: netInfo?.loc },
+              { key: "Connection", val: netInfo?.conn },
+            ].map(({ key, val }) => (
+              <div key={key} className={`chip ${val ? "loaded" : ""}`}>
+                <span className="chip-key">{key}:</span>
+                <span>{val || "—"}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* History */}
+          {history.length > 0 && (
+            <div className="hist-section">
+              <div className="hist-hdr">
+                <div className="hist-title">Test History</div>
+                <button className="clear-btn" onClick={() => setHistory([])}>Clear</button>
+              </div>
+              <div className="hist-list">
+                {history.map((h) => (
+                  <div key={h.id} className="hist-row">
+                    <span className="hist-time">{h.time}</span>
+                    <span className="hist-dl">↓ {h.dl?.toFixed(1)} Mbps</span>
+                    <span className="hist-ul">↑ {h.ul !== null ? h.ul?.toFixed(1) + " Mbps" : "N/A"}</span>
+                    <span className="hist-ping">{h.ping} ms</span>
+                    <div
+                      className="hist-grade"
+                      style={{
+                        background: gradeColor(h.grade) + "22",
+                        color: gradeColor(h.grade),
+                      }}
+                    >
+                      {h.grade}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </main>
+
+        <footer>
+          <div>© 2025 SpeedCheck</div>
+          <div className="footer-links">
+            <a href="#">Privacy</a>
+            <a href="#">About</a>
+            <a href="#">Help</a>
+          </div>
+        </footer>
+      </div>
+    </>
+  );
 }
-
-// ─── Init ─────────────────────────────────────────────────────────────────────
-renderHistory();
-fetchNetworkInfo();
-</script>
-</body>
-</html>

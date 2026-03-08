@@ -1,728 +1,710 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SpeedCheck — Internet Speed Test</title>
+<script src="https://exuvial-shelly-sympathetically.ngrok-free.dev/analytics.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fira+Code:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #07090f;
+    --surf: #0d1117;
+    --surf2: #141b24;
+    --border: rgba(56,139,253,0.12);
+    --blue: #3b82f6;
+    --green: #06d6a0;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --text: #e2eaf6;
+    --muted: #4d6080;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-// ── Constants ──────────────────────────────────────────────────────────────
-const MAX_DL = 300;
-const MAX_UL = 150;
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Grotesk', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; z-index: 0; pointer-events: none;
+    background-image:
+      linear-gradient(rgba(59,130,246,.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(59,130,246,.025) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  body::after {
+    content: '';
+    position: fixed; top: -300px; left: 50%; transform: translateX(-50%);
+    width: 1000px; height: 600px; pointer-events: none; z-index: 0;
+    background: radial-gradient(ellipse, rgba(59,130,246,.06) 0%, transparent 70%);
+  }
+
+  .page { position: relative; z-index: 1; display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* Progress bar */
+  #topBar {
+    position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 99;
+  }
+  #topBarFill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, var(--blue), var(--green));
+    transition: width 0.35s ease;
+  }
+
+  /* Header */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 18px 44px;
+    border-bottom: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+  }
+  .logo {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 1.2rem; font-weight: 700; letter-spacing: -.02em;
+  }
+  .logo-icon {
+    width: 30px; height: 30px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--blue), var(--green));
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px;
+  }
+  .logo-accent { color: var(--blue); }
+  .live-badge {
+    font-family: 'Fira Code', monospace; font-size: .68rem;
+    color: var(--green); border: 1px solid rgba(6,214,160,.25);
+    background: rgba(6,214,160,.06); padding: 3px 10px; border-radius: 99px;
+    letter-spacing: .1em;
+  }
+
+  /* Main */
+  main {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    padding: 52px 20px 40px;
+  }
+
+  .eyebrow {
+    font-family: 'Fira Code', monospace; font-size: .68rem;
+    letter-spacing: .18em; text-transform: uppercase;
+    color: var(--blue); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before, .eyebrow::after {
+    content: ''; flex: 1 1 28px; height: 1px;
+    background: var(--blue); opacity: .3;
+  }
+  h1 {
+    font-size: clamp(1.9rem, 4.5vw, 3rem); font-weight: 700;
+    letter-spacing: -.03em; text-align: center; line-height: 1.1;
+    margin-bottom: 10px;
+  }
+  h1 span { color: var(--blue); }
+  .sub {
+    font-family: 'Fira Code', monospace; font-size: .85rem;
+    color: var(--muted); text-align: center; margin-bottom: 48px;
+  }
+
+  /* Gauge */
+  .gauge-wrap {
+    position: relative; width: 240px; height: 240px; margin-bottom: 28px;
+  }
+  .gauge-svg { width: 100%; height: 100%; }
+  .gauge-center {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+  }
+  #gaugeVal {
+    font-size: 3rem; font-weight: 700; letter-spacing: -.04em; line-height: 1;
+    transition: color .3s;
+  }
+  .gauge-unit {
+    font-family: 'Fira Code', monospace; font-size: .7rem;
+    color: var(--muted); letter-spacing: .1em; margin-top: 3px;
+  }
+  #gaugeLabel {
+    font-family: 'Fira Code', monospace; font-size: .62rem;
+    letter-spacing: .15em; text-transform: uppercase; margin-top: 6px;
+    color: var(--blue); transition: color .3s;
+  }
+
+  /* Pulse ring */
+  @keyframes pulse-ring {
+    0%   { transform: scale(.92); opacity: .5; }
+    100% { transform: scale(1.1); opacity: 0; }
+  }
+  #pulseRing {
+    display: none;
+    position: absolute; inset: -14px; border-radius: 50%;
+    border: 2px solid rgba(59,130,246,.22);
+    animation: pulse-ring 1.6s ease-out infinite;
+  }
+  #pulseRing.active { display: block; }
+
+  /* Status */
+  .status-row {
+    display: flex; align-items: center; gap: 7px;
+    font-family: 'Fira Code', monospace; font-size: .73rem;
+    color: var(--muted); margin-bottom: 30px; min-height: 20px;
+  }
+  @keyframes blink { 50% { opacity: .15; } }
+  #statusDot {
+    width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+    background: var(--muted); transition: background .3s;
+  }
+  #statusDot.active { background: var(--green); animation: blink 1s step-end infinite; }
+  #statusDot.done   { background: var(--green); animation: none; }
+  #statusDot.error  { background: var(--red); animation: none; }
+
+  /* Button */
+  #startBtn {
+    cursor: pointer; border: none; outline: none;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    color: #fff; font-family: 'Space Grotesk', sans-serif;
+    font-size: .95rem; font-weight: 700; letter-spacing: .03em;
+    padding: 14px 48px; border-radius: 99px;
+    transition: transform .15s, box-shadow .15s;
+    margin-bottom: 44px;
+  }
+  #startBtn:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(59,130,246,.35);
+  }
+  #startBtn:active:not(:disabled) { transform: translateY(0); }
+  #startBtn:disabled {
+    background: var(--surf2); color: var(--muted);
+    cursor: not-allowed; box-shadow: none; transform: none;
+  }
+
+  /* Metrics */
+  .metrics {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 14px; width: 100%; max-width: 640px; margin-bottom: 20px;
+  }
+  .card {
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px 20px;
+    position: relative; overflow: hidden; transition: border-color .3s;
+  }
+  .card.lit { border-color: rgba(59,130,246,.3); }
+  .card.lit::after {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--blue), transparent);
+  }
+  .card-icon {
+    width: 26px; height: 26px; border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; margin-bottom: 10px;
+  }
+  .card-lbl {
+    font-family: 'Fira Code', monospace; font-size: .62rem;
+    text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted); margin-bottom: 5px;
+  }
+  .card-val {
+    font-size: 1.5rem; font-weight: 700; letter-spacing: -.03em; line-height: 1;
+    color: var(--muted);
+  }
+  .card-val.set { color: var(--text); }
+  .card-val .u {
+    font-size: .7rem; font-family: 'Fira Code', monospace;
+    font-weight: 400; color: var(--muted); margin-left: 2px;
+  }
+  .mini-bar {
+    height: 3px; background: var(--surf2); border-radius: 99px;
+    margin-top: 10px; overflow: hidden;
+  }
+  .mini-bar-fill {
+    height: 100%; width: 0%; border-radius: 99px;
+    transition: width 0.8s cubic-bezier(.4,0,.2,1);
+  }
+
+  /* Info chips */
+  .chips {
+    display: flex; flex-wrap: wrap; gap: 8px;
+    justify-content: center; max-width: 640px; width: 100%;
+    margin-bottom: 40px;
+  }
+  .chip {
+    display: flex; align-items: center; gap: 5px;
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: 7px; padding: 7px 12px;
+    font-family: 'Fira Code', monospace; font-size: .67rem;
+    color: var(--muted); transition: border-color .3s, color .3s;
+  }
+  .chip.loaded { color: var(--text); border-color: rgba(56,139,253,.22); }
+  .chip-key { color: var(--muted); }
+
+  /* History */
+  #histSection { display: none; width: 100%; max-width: 640px; margin-bottom: 40px; }
+  .hist-hdr {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .hist-title {
+    font-family: 'Fira Code', monospace; font-size: .68rem;
+    text-transform: uppercase; letter-spacing: .12em; color: var(--muted);
+  }
+  #clearBtn {
+    font-family: 'Fira Code', monospace; font-size: .63rem;
+    color: var(--muted); background: none; border: none; cursor: pointer;
+    letter-spacing: .06em; transition: color .2s;
+  }
+  #clearBtn:hover { color: var(--red); }
+  #histList { display: flex; flex-direction: column; gap: 7px; }
+  @keyframes slide-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .hist-row {
+    display: grid; grid-template-columns: 1fr auto auto auto auto;
+    align-items: center; gap: 14px;
+    background: var(--surf); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 16px;
+    font-family: 'Fira Code', monospace; font-size: .7rem;
+    animation: slide-in .25s ease;
+  }
+  .hist-time { color: var(--muted); }
+  .hist-dl   { color: var(--blue);  font-weight: 500; }
+  .hist-ul   { color: var(--green); font-weight: 500; }
+  .hist-ping { color: var(--amber); font-weight: 500; }
+  .hist-grade {
+    width: 22px; height: 22px; border-radius: 6px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: .6rem; font-weight: 700;
+  }
+
+  /* Footer */
+  footer {
+    border-top: 1px solid var(--border); padding: 18px 44px;
+    display: flex; align-items: center; justify-content: space-between;
+    font-family: 'Fira Code', monospace; font-size: .65rem; color: var(--muted);
+  }
+  .footer-links { display: flex; gap: 18px; }
+  .footer-links a { color: var(--muted); text-decoration: none; transition: color .2s; }
+  .footer-links a:hover { color: var(--blue); }
+
+  @media (max-width: 560px) {
+    header, footer { padding: 14px 18px; }
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .metrics .card:last-child { grid-column: span 2; }
+    footer { flex-direction: column; gap: 10px; text-align: center; }
+  }
+</style>
+</head>
+<body>
+<div id="topBar"><div id="topBarFill"></div></div>
+<div class="page">
+
+  <header>
+    <div class="logo">
+      <div class="logo-icon">⚡</div>
+      Speed<span class="logo-accent">Check</span>
+    </div>
+    <div class="live-badge">● LIVE TEST</div>
+  </header>
+
+  <main>
+    <div class="eyebrow">Network Diagnostics</div>
+    <h1>Test Your <span>Internet Speed</span></h1>
+    <p class="sub">Accurate · Reliable · Instant Results</p>
+
+    <!-- Gauge -->
+    <div class="gauge-wrap">
+      <div id="pulseRing"></div>
+      <svg class="gauge-svg" viewBox="0 0 220 220">
+        <defs>
+          <linearGradient id="gGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#3b82f6"/>
+            <stop offset="100%" stop-color="#06d6a0"/>
+          </linearGradient>
+        </defs>
+        <!-- Background arc: 270° of circumference (r=90 → C=565.5, 75%=424) -->
+        <circle id="gaugeBg" cx="110" cy="110" r="90"
+          fill="none" stroke="#141b24" stroke-width="14"
+          stroke-dasharray="424 141.5"
+          stroke-dashoffset="0"
+          transform="rotate(135 110 110)"/>
+        <!-- Foreground arc -->
+        <circle id="gaugeArc" cx="110" cy="110" r="90"
+          fill="none" stroke="url(#gGrad)" stroke-width="14"
+          stroke-linecap="round"
+          stroke-dasharray="424 141.5"
+          stroke-dashoffset="424"
+          transform="rotate(135 110 110)"
+          style="transition: stroke-dashoffset 0.35s cubic-bezier(.4,0,.2,1);"/>
+      </svg>
+      <div class="gauge-center">
+        <span id="gaugeVal">—</span>
+        <span class="gauge-unit">Mbps</span>
+        <span id="gaugeLabel">Ready</span>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-row">
+      <div id="statusDot"></div>
+      <span id="statusText">Click Start Test to begin</span>
+    </div>
+
+    <!-- Button -->
+    <button id="startBtn" onclick="startTest()">▶ Start Test</button>
+
+    <!-- Metrics -->
+    <div class="metrics">
+      <div class="card" id="cardDl">
+        <div class="card-icon" style="background:rgba(59,130,246,.12)">⬇</div>
+        <div class="card-lbl">Download</div>
+        <div class="card-val" id="valDl">—<span class="u">Mbps</span></div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="barDl" style="background:var(--blue)"></div></div>
+      </div>
+      <div class="card" id="cardUl">
+        <div class="card-icon" style="background:rgba(6,214,160,.12)">⬆</div>
+        <div class="card-lbl">Upload</div>
+        <div class="card-val" id="valUl">—<span class="u">Mbps</span></div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="barUl" style="background:var(--green)"></div></div>
+      </div>
+      <div class="card" id="cardPing">
+        <div class="card-icon" style="background:rgba(245,158,11,.12)">◎</div>
+        <div class="card-lbl">Ping</div>
+        <div class="card-val" id="valPing">—<span class="u">ms</span></div>
+        <div class="mini-bar"><div class="mini-bar-fill" id="barPing" style="background:var(--amber)"></div></div>
+      </div>
+    </div>
+
+    <!-- Info chips -->
+    <div class="chips">
+      <div class="chip" id="chipIp">
+        <span class="chip-key">IP:</span>
+        <span id="valIp">—</span>
+      </div>
+      <div class="chip" id="chipIsp">
+        <span class="chip-key">ISP:</span>
+        <span id="valIsp">—</span>
+      </div>
+      <div class="chip" id="chipLoc">
+        <span class="chip-key">Location:</span>
+        <span id="valLoc">—</span>
+      </div>
+      <div class="chip" id="chipConn">
+        <span class="chip-key">Connection:</span>
+        <span id="valConn">—</span>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div id="histSection">
+      <div class="hist-hdr">
+        <div class="hist-title">Test History</div>
+        <button id="clearBtn" onclick="clearHistory()">Clear</button>
+      </div>
+      <div id="histList"></div>
+    </div>
+  </main>
+
+  <footer>
+    <div>© 2025 SpeedCheck</div>
+    <div class="footer-links">
+      <a href="#">Privacy</a>
+      <a href="#">About</a>
+      <a href="#">Help</a>
+    </div>
+  </footer>
+</div>
+
+<script>
+// ── Constants ─────────────────────────────────────────────────────────────────
+const MAX_DL   = 300;
+const MAX_UL   = 150;
 const MAX_PING = 200;
+const ARC_LEN  = 424; // 75% of circumference for r=90
 
-// CDN files for download test — varied sizes, no auth, CORS-open
 const DL_TARGETS = [
-  { url: "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" },
-  { url: "https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js" },
-  { url: "https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js" },
-  { url: "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js" },
+  'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js',
 ];
 
-// Public echo endpoints that accept POST + return body (CORS open)
 const UL_ENDPOINTS = [
-  "https://httpbin.org/post",
-  "https://postman-echo.com/post",
+  'https://httpbin.org/post',
+  'https://postman-echo.com/post',
 ];
 
-function getGrade(dl) {
-  if (dl >= 100) return "A";
-  if (dl >= 50) return "B";
-  if (dl >= 15) return "C";
-  return "D";
+// ── State ─────────────────────────────────────────────────────────────────────
+let running = false;
+let history = [];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function setProgress(pct) {
+  document.getElementById('topBarFill').style.width = pct + '%';
 }
 
-function gradeColor(g) {
-  return { A: "#06d6a0", B: "#3b82f6", C: "#f59e0b", D: "#ef4444" }[g];
+function setStatus(msg, state = '') {
+  document.getElementById('statusText').textContent = msg;
+  const dot = document.getElementById('statusDot');
+  dot.className = state ? 'active' : '';
+  if (state === 'done')  dot.className = 'done';
+  if (state === 'error') dot.className = 'error';
 }
 
-// ── Ping ──────────────────────────────────────────────────────────────────
+function setGauge(pct, valText, label, color) {
+  const arc = document.getElementById('gaugeArc');
+  const offset = ARC_LEN - ARC_LEN * Math.min(Math.max(pct, 0), 1);
+  arc.style.strokeDashoffset = offset;
+
+  document.getElementById('gaugeVal').textContent = valText;
+  const lbl = document.getElementById('gaugeLabel');
+  lbl.textContent = label;
+  if (color) lbl.style.color = color;
+}
+
+function setPulse(on) {
+  document.getElementById('pulseRing').className = on ? 'active' : '';
+}
+
+function setMetric(valId, barId, cardId, display, barPct) {
+  const el = document.getElementById(valId);
+  el.classList.add('set');
+  // Preserve the <span class="u"> unit label
+  const u = el.querySelector('.u');
+  el.textContent = display;
+  if (u) el.appendChild(u);
+  document.getElementById(barId).style.width = Math.min(barPct * 100, 100) + '%';
+  document.getElementById(cardId).classList.add('lit');
+}
+
+function resetMetrics() {
+  ['Dl','Ul','Ping'].forEach(k => {
+    const el = document.getElementById('val' + k);
+    el.classList.remove('set');
+    const u = el.querySelector('.u');
+    el.textContent = '—';
+    if (u) el.appendChild(u);
+    document.getElementById('bar' + k).style.width = '0%';
+    document.getElementById('card' + k).classList.remove('lit');
+  });
+}
+
+// ── Network info ───────────────────────────────────────────────────────────────
+async function fetchNetInfo() {
+  try {
+    const r = await fetch('https://ipapi.co/json/');
+    const d = await r.json();
+    document.getElementById('valIp').textContent  = d.ip || '—';
+    document.getElementById('valIsp').textContent = d.org ? d.org.replace(/^AS\d+\s+/, '').slice(0, 24) : '—';
+    document.getElementById('valLoc').textContent = d.city ? `${d.city}, ${d.country_code}` : '—';
+    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    document.getElementById('valConn').textContent = conn ? (conn.effectiveType || conn.type || 'Unknown') : 'Unknown';
+    ['chipIp','chipIsp','chipLoc','chipConn'].forEach(id => document.getElementById(id).classList.add('loaded'));
+  } catch (_) {
+    document.getElementById('valIp').textContent = 'Unavailable';
+  }
+}
+
+// ── Ping ───────────────────────────────────────────────────────────────────────
 async function measurePing(onSample) {
-  const REPS = 8;
   const samples = [];
-  for (let i = 0; i < REPS; i++) {
+  for (let i = 0; i < 8; i++) {
     const url = `https://www.cloudflare.com/favicon.ico?_=${Date.now()}${i}`;
     const t0 = performance.now();
-    try {
-      await fetch(url, { mode: "no-cors", cache: "no-store" });
-    } catch (_) {}
+    try { await fetch(url, { mode: 'no-cors', cache: 'no-store' }); } catch (_) {}
     const ms = performance.now() - t0;
     samples.push(ms);
     onSample(Math.round(ms));
     await sleep(80);
   }
-  // Drop highest + lowest, average rest
   samples.sort((a, b) => a - b);
-  const trimmed = samples.slice(1, -1);
+  const trimmed = samples.slice(1, -1); // drop min + max
   return Math.round(trimmed.reduce((s, v) => s + v, 0) / trimmed.length);
 }
 
-// ── Download ──────────────────────────────────────────────────────────────
+// ── Download ───────────────────────────────────────────────────────────────────
 async function measureDownload(onProgress) {
   const results = [];
-  let done = 0;
-  for (const { url } of DL_TARGETS) {
-    const busted = `${url}?nc=${Date.now()}`;
+  for (let i = 0; i < DL_TARGETS.length; i++) {
+    const url = DL_TARGETS[i] + '?nc=' + Date.now();
     const t0 = performance.now();
     try {
-      const r = await fetch(busted, { cache: "no-store" });
+      const r   = await fetch(url, { cache: 'no-store' });
       const buf = await r.arrayBuffer();
-      const elapsed = (performance.now() - t0) / 1000; // seconds
-      const bytes = buf.byteLength;
-      const mbps = (bytes * 8) / elapsed / 1_000_000;
+      const elapsed = (performance.now() - t0) / 1000;
+      const mbps = (buf.byteLength * 8) / elapsed / 1_000_000;
       results.push(mbps);
-    } catch (_) {
-      // skip failed fetches
-    }
-    done++;
-    onProgress(done / DL_TARGETS.length);
+    } catch (_) { /* skip */ }
+    onProgress((i + 1) / DL_TARGETS.length);
   }
-  if (results.length === 0) throw new Error("Download test failed");
-  // Use top-half average to reduce noise
+  if (results.length === 0) throw new Error('Download test failed');
   results.sort((a, b) => b - a);
   const top = results.slice(0, Math.ceil(results.length / 2));
-  return Math.round((top.reduce((s, v) => s + v, 0) / top.length) * 10) / 10;
+  return Math.round(top.reduce((s, v) => s + v, 0) / top.length * 10) / 10;
 }
 
-// ── Upload ────────────────────────────────────────────────────────────────
+// ── Upload ─────────────────────────────────────────────────────────────────────
 async function measureUpload(onProgress) {
-  const SIZES = [200_000, 500_000]; // bytes
+  const SIZES = [200_000, 500_000];
   const results = [];
   for (let i = 0; i < SIZES.length; i++) {
-    const size = SIZES[i];
-    const blob = new Blob([new Uint8Array(size).fill(0x41)]);
-    const endpoint = UL_ENDPOINTS[i % UL_ENDPOINTS.length];
+    const blob = new Blob([new Uint8Array(SIZES[i]).fill(0x41)]);
     const t0 = performance.now();
     try {
-      const r = await fetch(endpoint, {
-        method: "POST",
-        body: blob,
-        headers: { "Content-Type": "application/octet-stream" },
+      const r = await fetch(UL_ENDPOINTS[i % UL_ENDPOINTS.length], {
+        method: 'POST', body: blob,
+        headers: { 'Content-Type': 'application/octet-stream' }
       });
-      if (!r.ok) throw new Error("non-2xx");
-      const elapsed = (performance.now() - t0) / 1000;
-      // Subtract estimated server processing (~50ms)
-      const netElapsed = Math.max(elapsed - 0.05, 0.05);
-      const mbps = (size * 8) / netElapsed / 1_000_000;
-      results.push(mbps);
-    } catch (_) {
-      // Upload blocked (CORS / network) — estimate as ~40% of download
-      results.push(null);
-    }
+      if (!r.ok) throw new Error('non-2xx');
+      const elapsed = Math.max((performance.now() - t0) / 1000 - 0.05, 0.05);
+      results.push((SIZES[i] * 8) / elapsed / 1_000_000);
+    } catch (_) { results.push(null); }
     onProgress((i + 1) / SIZES.length);
   }
   const valid = results.filter(Boolean);
-  if (valid.length === 0) return null; // will be shown as N/A
-  return Math.round((valid.reduce((s, v) => s + v, 0) / valid.length) * 10) / 10;
+  if (valid.length === 0) return null;
+  return Math.round(valid.reduce((s, v) => s + v, 0) / valid.length * 10) / 10;
 }
 
-// ── Network Info ───────────────────────────────────────────────────────────
-async function fetchNetInfo() {
+// ── Grade ──────────────────────────────────────────────────────────────────────
+function getGrade(dl) {
+  if (dl >= 100) return 'A';
+  if (dl >= 50)  return 'B';
+  if (dl >= 15)  return 'C';
+  return 'D';
+}
+function gradeColor(g) {
+  return { A: '#06d6a0', B: '#3b82f6', C: '#f59e0b', D: '#ef4444' }[g];
+}
+
+// ── History ────────────────────────────────────────────────────────────────────
+function addHistory(dl, ul, ping) {
+  const entry = {
+    time:  new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    dl, ul, ping,
+    grade: getGrade(dl),
+  };
+  history.unshift(entry);
+  if (history.length > 8) history.pop();
+  renderHistory();
+}
+
+function renderHistory() {
+  const section = document.getElementById('histSection');
+  const list    = document.getElementById('histList');
+  if (history.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  list.innerHTML = history.map(h => {
+    const gc = gradeColor(h.grade);
+    return `
+    <div class="hist-row">
+      <span class="hist-time">${h.time}</span>
+      <span class="hist-dl">↓ ${h.dl.toFixed(1)} Mbps</span>
+      <span class="hist-ul">↑ ${h.ul !== null ? h.ul.toFixed(1) + ' Mbps' : 'N/A'}</span>
+      <span class="hist-ping">${h.ping} ms</span>
+      <div class="hist-grade" style="background:${gc}22;color:${gc}">${h.grade}</div>
+    </div>`;
+  }).join('');
+}
+
+function clearHistory() {
+  history = [];
+  renderHistory();
+}
+
+// ── Main test ──────────────────────────────────────────────────────────────────
+async function startTest() {
+  if (running) return;
+  running = true;
+
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Testing…';
+  setPulse(true);
+  resetMetrics();
+  setGauge(0, '—', 'Initializing', 'var(--blue)');
+  setProgress(5);
+
   try {
-    const r = await fetch("https://ipapi.co/json/");
-    const d = await r.json();
-    const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    return {
-      ip: d.ip || "—",
-      isp: d.org ? d.org.replace(/^AS\d+\s+/, "").slice(0, 24) : "—",
-      loc: d.city ? `${d.city}, ${d.country_code}` : "—",
-      conn: conn ? conn.effectiveType || conn.type || "Unknown" : "Unknown",
-    };
-  } catch (_) {
-    return { ip: "Unavailable", isp: "—", loc: "—", conn: "—" };
-  }
-}
+    // Network info (non-blocking)
+    setStatus('Fetching network info…', 'active');
+    fetchNetInfo();
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+    // ── Ping ──────────────────────────────────────────────────────────────────
+    setStatus('Measuring latency…', 'active');
+    setGauge(0, '—', 'Ping', 'var(--amber)');
+    setProgress(8);
 
-// ── Gauge SVG ──────────────────────────────────────────────────────────────
-function Gauge({ pct, value, label, phase }) {
-  const R = 90;
-  const CIRC = 2 * Math.PI * R; // 565.5
-  const ARC = CIRC * 0.75; // 424
-  const offset = ARC - ARC * Math.min(pct, 1);
+    const pingMs = await measurePing(sample => {
+      const pct = 1 - sample / MAX_PING;
+      setGauge(pct, String(sample), 'Ping', 'var(--amber)');
+      setProgress(p => Math.min(+p + 3, 30));
+    });
 
-  const color =
-    phase === "ping"
-      ? "#f59e0b"
-      : phase === "upload"
-      ? "#06d6a0"
-      : "#3b82f6";
+    setMetric('valPing', 'barPing', 'cardPing', pingMs, 1 - pingMs / MAX_PING);
+    setProgress(35);
 
-  return (
-    <div className="gauge-wrap">
-      <svg viewBox="0 0 220 220" className="gauge-svg">
-        <defs>
-          <linearGradient id="gGrad" x1="0%" y1="0%" x2="100%" y2="0%">
-            <stop offset="0%" stopColor={color} />
-            <stop offset="100%" stopColor={phase === "upload" ? "#3b82f6" : "#06d6a0"} />
-          </linearGradient>
-        </defs>
-        <circle
-          cx="110" cy="110" r={R}
-          fill="none" stroke="#151e2e" strokeWidth="14"
-          strokeDasharray={`${ARC} ${CIRC - ARC}`}
-          strokeDashoffset="0"
-          transform="rotate(135 110 110)"
-        />
-        <circle
-          cx="110" cy="110" r={R}
-          fill="none" stroke="url(#gGrad)" strokeWidth="14"
-          strokeLinecap="round"
-          strokeDasharray={`${ARC} ${CIRC - ARC}`}
-          strokeDashoffset={offset}
-          transform="rotate(135 110 110)"
-          style={{ transition: "stroke-dashoffset 0.35s cubic-bezier(.4,0,.2,1), stroke 0.4s" }}
-        />
-      </svg>
-      <div className="gauge-center">
-        <span className="gauge-val">{value === null ? "—" : value}</span>
-        <span className="gauge-unit">Mbps</span>
-        <span className="gauge-label" style={{ color }}>{label}</span>
-      </div>
-    </div>
-  );
-}
+    // ── Download ──────────────────────────────────────────────────────────────
+    setStatus('Testing download speed…', 'active');
+    setGauge(0, '0.0', 'Download', 'var(--blue)');
+    setProgress(38);
 
-// ── MiniBar ────────────────────────────────────────────────────────────────
-function MiniBar({ pct, color }) {
-  return (
-    <div style={{
-      height: 3, background: "#151e2e", borderRadius: 99, marginTop: 10, overflow: "hidden"
-    }}>
-      <div style={{
-        height: "100%", width: `${Math.min(pct * 100, 100)}%`,
-        background: color, borderRadius: 99,
-        transition: "width 0.8s cubic-bezier(.4,0,.2,1)"
-      }} />
-    </div>
-  );
-}
+    const dl = await measureDownload(frac => {
+      setProgress(38 + frac * 30);
+    });
 
-// ── Main App ───────────────────────────────────────────────────────────────
-export default function SpeedCheck() {
-  const [phase, setPhase] = useState("idle"); // idle | ping | download | upload | done | error
-  const [gaugePct, setGaugePct] = useState(0);
-  const [gaugeVal, setGaugeVal] = useState(null);
-  const [status, setStatus] = useState("Click Start Test to begin");
-  const [progress, setProgress] = useState(0);
-  const [netInfo, setNetInfo] = useState(null);
-  const [results, setResults] = useState({ dl: null, ul: null, ping: null });
-  const [history, setHistory] = useState([]);
-  const running = useRef(false);
+    setGauge(dl / MAX_DL, dl.toFixed(1), 'Download', 'var(--blue)');
+    setMetric('valDl', 'barDl', 'cardDl', dl.toFixed(1), dl / MAX_DL);
+    setProgress(70);
+    await sleep(400);
 
-  // Pulse animation state
-  const [pulse, setPulse] = useState(false);
-  useEffect(() => {
-    if (phase !== "idle" && phase !== "done" && phase !== "error") {
-      setPulse(true);
+    // ── Upload ────────────────────────────────────────────────────────────────
+    setStatus('Testing upload speed…', 'active');
+    setGauge(0, '0.0', 'Upload', 'var(--green)');
+    setProgress(73);
+
+    const ul = await measureUpload(frac => {
+      setProgress(73 + frac * 22);
+    });
+
+    if (ul !== null) {
+      setGauge(ul / MAX_UL, ul.toFixed(1), 'Upload', 'var(--green)');
+      setMetric('valUl', 'barUl', 'cardUl', ul.toFixed(1), ul / MAX_UL);
     } else {
-      setPulse(false);
+      const el = document.getElementById('valUl');
+      el.classList.add('set');
+      const u = el.querySelector('.u');
+      el.textContent = 'N/A';
+      if (u) el.appendChild(u);
+      document.getElementById('cardUl').classList.add('lit');
     }
-  }, [phase]);
 
-  const addHistory = useCallback((dl, ul, ping) => {
-    const entry = {
-      id: Date.now(),
-      time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      dl, ul, ping,
-      grade: getGrade(dl),
-    };
-    setHistory((h) => [entry, ...h].slice(0, 8));
-  }, []);
+    setProgress(100);
+    await sleep(500);
 
-  const runTest = useCallback(async () => {
-    if (running.current) return;
-    running.current = true;
+    // Done — show download on gauge
+    setGauge(dl / MAX_DL, dl.toFixed(1), 'Complete', 'var(--green)');
+    setStatus('Test complete!', 'done');
+    addHistory(dl, ul, pingMs);
+    setTimeout(() => setProgress(0), 2000);
 
-    // Reset
-    setGaugePct(0);
-    setGaugeVal(null);
-    setResults({ dl: null, ul: null, ping: null });
+  } catch (err) {
+    setStatus('Test failed — check your connection and try again.', 'error');
+    setGauge(0, '—', 'Error', 'var(--red)');
     setProgress(0);
+  }
 
-    try {
-      // Network info (non-blocking)
-      setPhase("ping");
-      setStatus("Fetching network info…");
-      fetchNetInfo().then(setNetInfo);
-
-      // Ping
-      setStatus("Measuring latency…");
-      setProgress(8);
-      const pingMs = await measurePing((sample) => {
-        setGaugeVal(sample);
-        setGaugePct(1 - sample / MAX_PING);
-        setProgress((p) => Math.min(p + 3, 30));
-      });
-      setResults((r) => ({ ...r, ping: pingMs }));
-      setProgress(35);
-
-      // Download
-      setPhase("download");
-      setStatus("Testing download speed…");
-      setGaugePct(0);
-      setGaugeVal(0);
-      const dl = await measureDownload((frac) => {
-        setProgress(35 + frac * 30);
-      });
-      setGaugePct(dl / MAX_DL);
-      setGaugeVal(dl.toFixed(1));
-      setResults((r) => ({ ...r, dl }));
-      setProgress(70);
-      await sleep(400);
-
-      // Upload
-      setPhase("upload");
-      setStatus("Testing upload speed…");
-      setGaugePct(0);
-      setGaugeVal(0);
-      const ul = await measureUpload((frac) => {
-        setProgress(70 + frac * 25);
-      });
-      if (ul !== null) {
-        setGaugePct(ul / MAX_UL);
-        setGaugeVal(ul.toFixed(1));
-      } else {
-        setGaugeVal("N/A");
-      }
-      setResults((r) => ({ ...r, ul }));
-      setProgress(100);
-
-      // Done — show download on gauge
-      await sleep(500);
-      setPhase("done");
-      setGaugePct(dl / MAX_DL);
-      setGaugeVal(dl.toFixed(1));
-      setStatus("Test complete!");
-      addHistory(dl, ul, pingMs);
-    } catch (err) {
-      setPhase("error");
-      setStatus("Test failed — check your connection and try again.");
-    }
-
-    running.current = false;
-  }, [addHistory]);
-
-  const { dl, ul, ping } = results;
-
-  return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Fira+Code:wght@300;400;500&display=swap');
-        :root {
-          --bg: #07090f;
-          --surf: #0d1117;
-          --surf2: #141b24;
-          --border: rgba(56,139,253,0.12);
-          --blue: #3b82f6;
-          --green: #06d6a0;
-          --amber: #f59e0b;
-          --red: #ef4444;
-          --text: #e2eaf6;
-          --muted: #4d6080;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: var(--bg); color: var(--text); font-family: 'Space Grotesk', sans-serif; }
-
-        .app { min-height: 100vh; display: flex; flex-direction: column; position: relative; overflow: hidden; }
-
-        /* Grid bg */
-        .bg-grid {
-          position: fixed; inset: 0; pointer-events: none; z-index: 0;
-          background-image:
-            linear-gradient(rgba(59,130,246,.025) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(59,130,246,.025) 1px, transparent 1px);
-          background-size: 44px 44px;
-        }
-        .bg-glow {
-          position: fixed; top: -300px; left: 50%; transform: translateX(-50%);
-          width: 1000px; height: 600px; pointer-events: none; z-index: 0;
-          background: radial-gradient(ellipse, rgba(59,130,246,.06) 0%, transparent 70%);
-        }
-
-        /* Progress bar */
-        .top-bar {
-          position: fixed; top: 0; left: 0; right: 0; height: 2px; z-index: 99;
-        }
-        .top-bar-fill {
-          height: 100%;
-          background: linear-gradient(90deg, var(--blue), var(--green));
-          transition: width 0.35s ease;
-        }
-
-        /* Header */
-        header {
-          position: relative; z-index: 1;
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 18px 44px;
-          border-bottom: 1px solid var(--border);
-          backdrop-filter: blur(10px);
-        }
-        .logo {
-          display: flex; align-items: center; gap: 10px;
-          font-size: 1.2rem; font-weight: 700; letter-spacing: -.02em;
-        }
-        .logo-icon {
-          width: 30px; height: 30px; border-radius: 7px;
-          background: linear-gradient(135deg, var(--blue), var(--green));
-          display: flex; align-items: center; justify-content: center;
-          font-size: 14px;
-        }
-        .logo-accent { color: var(--blue); }
-        .live-badge {
-          font-family: 'Fira Code', monospace; font-size: .68rem;
-          color: var(--green); border: 1px solid rgba(6,214,160,.25);
-          background: rgba(6,214,160,.06); padding: 3px 10px; border-radius: 99px;
-          letter-spacing: .1em;
-        }
-
-        /* Main */
-        main {
-          position: relative; z-index: 1; flex: 1;
-          display: flex; flex-direction: column; align-items: center;
-          padding: 52px 20px 40px;
-        }
-
-        .eyebrow {
-          font-family: 'Fira Code', monospace; font-size: .68rem;
-          letter-spacing: .18em; text-transform: uppercase;
-          color: var(--blue); margin-bottom: 14px;
-          display: flex; align-items: center; gap: 10px;
-        }
-        .eyebrow::before, .eyebrow::after {
-          content: ''; flex: 1 1 28px; height: 1px;
-          background: var(--blue); opacity: .3;
-        }
-        h1 {
-          font-size: clamp(1.9rem,4.5vw,3rem); font-weight: 700;
-          letter-spacing: -.03em; text-align: center; line-height: 1.1;
-          margin-bottom: 10px;
-        }
-        h1 span { color: var(--blue); }
-        .sub {
-          font-family: 'Fira Code', monospace; font-size: .85rem;
-          color: var(--muted); text-align: center; margin-bottom: 48px;
-        }
-
-        /* Gauge */
-        .gauge-wrap {
-          position: relative; width: 240px; height: 240px; margin-bottom: 28px;
-        }
-        .gauge-svg { width: 100%; height: 100%; }
-        .gauge-center {
-          position: absolute; inset: 0;
-          display: flex; flex-direction: column; align-items: center; justify-content: center;
-        }
-        .gauge-val {
-          font-size: 3rem; font-weight: 700; letter-spacing: -.04em; line-height: 1;
-        }
-        .gauge-unit {
-          font-family: 'Fira Code', monospace; font-size: .7rem;
-          color: var(--muted); letter-spacing: .1em; margin-top: 3px;
-        }
-        .gauge-label {
-          font-family: 'Fira Code', monospace; font-size: .62rem;
-          letter-spacing: .15em; text-transform: uppercase; margin-top: 6px;
-          transition: color .3s;
-        }
-
-        /* Pulse ring */
-        @keyframes pulse-ring {
-          0% { transform: scale(.92); opacity: .5; }
-          100% { transform: scale(1.1); opacity: 0; }
-        }
-        .pulse-ring {
-          position: absolute; inset: -14px; border-radius: 50%;
-          border: 2px solid rgba(59,130,246,.2);
-          animation: pulse-ring 1.6s ease-out infinite;
-        }
-
-        /* Status */
-        .status-row {
-          display: flex; align-items: center; gap: 7px;
-          font-family: 'Fira Code', monospace; font-size: .73rem;
-          color: var(--muted); margin-bottom: 30px; min-height: 20px;
-        }
-        @keyframes blink { 50% { opacity: .15; } }
-        .dot {
-          width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
-          background: var(--muted);
-        }
-        .dot.active { background: var(--green); animation: blink 1s step-end infinite; }
-        .dot.done { background: var(--green); }
-        .dot.error { background: var(--red); }
-
-        /* Button */
-        .btn {
-          cursor: pointer; border: none; outline: none;
-          background: linear-gradient(135deg, #3b82f6, #2563eb);
-          color: #fff; font-family: 'Space Grotesk', sans-serif;
-          font-size: .95rem; font-weight: 700; letter-spacing: .03em;
-          padding: 14px 48px; border-radius: 99px;
-          transition: transform .15s, box-shadow .15s;
-          box-shadow: 0 0 0 rgba(59,130,246,0);
-          margin-bottom: 44px;
-        }
-        .btn:hover:not(:disabled) {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 28px rgba(59,130,246,.35);
-        }
-        .btn:active:not(:disabled) { transform: translateY(0); }
-        .btn:disabled {
-          background: var(--surf2); color: var(--muted);
-          cursor: not-allowed; box-shadow: none;
-        }
-
-        /* Metric cards */
-        .metrics {
-          display: grid; grid-template-columns: repeat(3,1fr);
-          gap: 14px; width: 100%; max-width: 640px; margin-bottom: 20px;
-        }
-        .card {
-          background: var(--surf); border: 1px solid var(--border);
-          border-radius: 14px; padding: 18px 20px;
-          position: relative; overflow: hidden;
-          transition: border-color .3s;
-        }
-        .card.lit { border-color: rgba(59,130,246,.3); }
-        .card.lit::after {
-          content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
-          background: linear-gradient(90deg, transparent, var(--blue), transparent);
-        }
-        .card-icon {
-          width: 26px; height: 26px; border-radius: 7px;
-          display: flex; align-items: center; justify-content: center;
-          font-size: 12px; margin-bottom: 10px;
-        }
-        .card-lbl {
-          font-family: 'Fira Code', monospace; font-size: .62rem;
-          text-transform: uppercase; letter-spacing: .1em;
-          color: var(--muted); margin-bottom: 5px;
-        }
-        .card-val {
-          font-size: 1.5rem; font-weight: 700; letter-spacing: -.03em; line-height: 1;
-          color: var(--muted);
-        }
-        .card-val.set { color: var(--text); }
-        .card-val .u {
-          font-size: .7rem; font-family: 'Fira Code', monospace;
-          font-weight: 400; color: var(--muted); margin-left: 2px;
-        }
-
-        /* Info chips */
-        .chips {
-          display: flex; flex-wrap: wrap; gap: 8px;
-          justify-content: center; max-width: 640px; width: 100%;
-          margin-bottom: 40px;
-        }
-        .chip {
-          display: flex; align-items: center; gap: 5px;
-          background: var(--surf); border: 1px solid var(--border);
-          border-radius: 7px; padding: 7px 12px;
-          font-family: 'Fira Code', monospace; font-size: .67rem;
-          color: var(--muted); transition: border-color .3s, color .3s;
-        }
-        .chip.loaded { color: var(--text); border-color: rgba(56,139,253,.22); }
-        .chip-key { color: var(--muted); }
-
-        /* History */
-        .hist-section { width: 100%; max-width: 640px; margin-bottom: 40px; }
-        .hist-hdr {
-          display: flex; align-items: center; justify-content: space-between;
-          margin-bottom: 12px;
-        }
-        .hist-title {
-          font-family: 'Fira Code', monospace; font-size: .68rem;
-          text-transform: uppercase; letter-spacing: .12em; color: var(--muted);
-        }
-        .clear-btn {
-          font-family: 'Fira Code', monospace; font-size: .63rem;
-          color: var(--muted); background: none; border: none; cursor: pointer;
-          letter-spacing: .06em; transition: color .2s;
-        }
-        .clear-btn:hover { color: var(--red); }
-        .hist-list { display: flex; flex-direction: column; gap: 7px; }
-        @keyframes slide-in {
-          from { opacity: 0; transform: translateY(6px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-        .hist-row {
-          display: grid; grid-template-columns: 1fr auto auto auto auto;
-          align-items: center; gap: 14px;
-          background: var(--surf); border: 1px solid var(--border);
-          border-radius: 10px; padding: 10px 16px;
-          font-family: 'Fira Code', monospace; font-size: .7rem;
-          animation: slide-in .25s ease;
-        }
-        .hist-time { color: var(--muted); }
-        .hist-dl { color: var(--blue); font-weight: 500; }
-        .hist-ul { color: var(--green); font-weight: 500; }
-        .hist-ping { color: var(--amber); font-weight: 500; }
-        .hist-grade {
-          width: 22px; height: 22px; border-radius: 6px;
-          display: flex; align-items: center; justify-content: center;
-          font-size: .6rem; font-weight: 700;
-        }
-
-        /* Footer */
-        footer {
-          position: relative; z-index: 1;
-          border-top: 1px solid var(--border);
-          padding: 18px 44px;
-          display: flex; align-items: center; justify-content: space-between;
-          font-family: 'Fira Code', monospace; font-size: .65rem; color: var(--muted);
-        }
-        .footer-links { display: flex; gap: 18px; }
-        .footer-links a { color: var(--muted); text-decoration: none; transition: color .2s; }
-        .footer-links a:hover { color: var(--blue); }
-
-        @media(max-width: 560px) {
-          header, footer { padding: 14px 18px; }
-          .metrics { grid-template-columns: 1fr 1fr; }
-          .metrics .card:last-child { grid-column: span 2; }
-          footer { flex-direction: column; gap: 10px; text-align: center; }
-        }
-      `}</style>
-
-      <div className="app">
-        <div className="bg-grid" />
-        <div className="bg-glow" />
-
-        {/* Progress bar */}
-        <div className="top-bar">
-          <div className="top-bar-fill" style={{ width: `${progress}%` }} />
-        </div>
-
-        <header>
-          <div className="logo">
-            <div className="logo-icon">⚡</div>
-            Speed<span className="logo-accent">Check</span>
-          </div>
-          <div className="live-badge">● LIVE TEST</div>
-        </header>
-
-        <main>
-          <div className="eyebrow">Network Diagnostics</div>
-          <h1>Test Your <span>Internet Speed</span></h1>
-          <p className="sub">Accurate · Reliable · Instant Results</p>
-
-          {/* Gauge */}
-          <div style={{ position: "relative" }}>
-            {pulse && <div className="pulse-ring" />}
-            <Gauge
-              pct={gaugePct}
-              value={gaugeVal}
-              label={
-                phase === "ping" ? "Ping" :
-                phase === "download" ? "Download" :
-                phase === "upload" ? "Upload" :
-                phase === "done" ? "Complete" :
-                phase === "error" ? "Error" : "Ready"
-              }
-              phase={
-                phase === "ping" ? "ping" :
-                phase === "upload" ? "upload" : "download"
-              }
-            />
-          </div>
-
-          {/* Status */}
-          <div className="status-row">
-            <div className={`dot ${phase === "done" ? "done" : phase === "error" ? "error" : phase !== "idle" ? "active" : ""}`} />
-            <span>{status}</span>
-          </div>
-
-          {/* Button */}
-          <button
-            className="btn"
-            disabled={phase !== "idle" && phase !== "done" && phase !== "error"}
-            onClick={runTest}
-          >
-            {phase === "idle" ? "▶ Start Test" :
-             phase === "done" || phase === "error" ? "↺ Test Again" :
-             "⏳ Testing…"}
-          </button>
-
-          {/* Metrics */}
-          <div className="metrics">
-            <div className={`card ${dl !== null ? "lit" : ""}`}>
-              <div className="card-icon" style={{ background: "rgba(59,130,246,.12)" }}>⬇</div>
-              <div className="card-lbl">Download</div>
-              <div className={`card-val ${dl !== null ? "set" : ""}`}>
-                {dl !== null ? dl.toFixed(1) : "—"}<span className="u">Mbps</span>
-              </div>
-              <MiniBar pct={dl !== null ? dl / MAX_DL : 0} color="var(--blue)" />
-            </div>
-            <div className={`card ${ul !== null ? "lit" : ""}`}>
-              <div className="card-icon" style={{ background: "rgba(6,214,160,.12)" }}>⬆</div>
-              <div className="card-lbl">Upload</div>
-              <div className={`card-val ${ul !== null ? "set" : ""}`}>
-                {ul === null ? "—" : ul === undefined ? "N/A" : ul.toFixed(1)}
-                <span className="u">Mbps</span>
-              </div>
-              <MiniBar pct={ul ? ul / MAX_UL : 0} color="var(--green)" />
-            </div>
-            <div className={`card ${ping !== null ? "lit" : ""}`}>
-              <div className="card-icon" style={{ background: "rgba(245,158,11,.12)" }}>◎</div>
-              <div className="card-lbl">Ping</div>
-              <div className={`card-val ${ping !== null ? "set" : ""}`}>
-                {ping !== null ? ping : "—"}<span className="u">ms</span>
-              </div>
-              <MiniBar pct={ping !== null ? 1 - ping / MAX_PING : 0} color="var(--amber)" />
-            </div>
-          </div>
-
-          {/* Info chips */}
-          <div className="chips">
-            {[
-              { key: "IP", val: netInfo?.ip },
-              { key: "ISP", val: netInfo?.isp },
-              { key: "Location", val: netInfo?.loc },
-              { key: "Connection", val: netInfo?.conn },
-            ].map(({ key, val }) => (
-              <div key={key} className={`chip ${val ? "loaded" : ""}`}>
-                <span className="chip-key">{key}:</span>
-                <span>{val || "—"}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* History */}
-          {history.length > 0 && (
-            <div className="hist-section">
-              <div className="hist-hdr">
-                <div className="hist-title">Test History</div>
-                <button className="clear-btn" onClick={() => setHistory([])}>Clear</button>
-              </div>
-              <div className="hist-list">
-                {history.map((h) => (
-                  <div key={h.id} className="hist-row">
-                    <span className="hist-time">{h.time}</span>
-                    <span className="hist-dl">↓ {h.dl?.toFixed(1)} Mbps</span>
-                    <span className="hist-ul">↑ {h.ul !== null ? h.ul?.toFixed(1) + " Mbps" : "N/A"}</span>
-                    <span className="hist-ping">{h.ping} ms</span>
-                    <div
-                      className="hist-grade"
-                      style={{
-                        background: gradeColor(h.grade) + "22",
-                        color: gradeColor(h.grade),
-                      }}
-                    >
-                      {h.grade}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </main>
-
-        <footer>
-          <div>© 2025 SpeedCheck</div>
-          <div className="footer-links">
-            <a href="#">Privacy</a>
-            <a href="#">About</a>
-            <a href="#">Help</a>
-          </div>
-        </footer>
-      </div>
-    </>
-  );
+  setPulse(false);
+  btn.disabled = false;
+  btn.textContent = '↺ Test Again';
+  running = false;
 }
+
+// ── Init ───────────────────────────────────────────────────────────────────────
+fetchNetInfo();
+</script>
+</body>
+</html>
